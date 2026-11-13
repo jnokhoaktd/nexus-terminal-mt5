@@ -8,11 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from quant_modules.research import run_vector_backtest
+from quant_modules.research import run_vector_backtest, kalman_filter_1d, garch_1_1_volatility
 from quant_modules.risk import QuantRiskManager
 from quant_modules.trader import AutonomousQuantTrader
 
-app = FastAPI(title="NEXUS // 3D QUANT SURFACE & 4-PILLAR AI WAR ROOM")
+app = FastAPI(title="NEXUS // 3D MULTI-TASK QUANT ENGINE & AI WAR ROOM")
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,46 +112,69 @@ def get_historical_candles(symbol: str, tf: str, count: int = 400):
     return {"symbol": real_sym, "candles": candles, "volumes": volumes}
 
 @app.get("/api/quant/surface/{symbol}/{tf}")
-def get_3d_quant_surface(symbol: str, tf: str):
+def get_3d_quant_surface(symbol: str, tf: str, model: str = "orderflow"):
     """
-    Tạo ma trận địa hình định lượng 3D (24x24):
-    Trục X: Chuỗi thời gian (24 nến gần nhất)
-    Trục Z: Các dải độ lệch chuẩn thanh khoản / biến động
-    Trục Y (Độ cao địa hình): Mật độ Volume * Biên độ giá chuẩn hóa
+    Multi-Task 3D Quant Surface (32x32 High-Res Mesh):
+    - model='orderflow': Orderflow Imbalance & Liquidity Depth Surface
+    - model='kalman': Kalman Filter Latent Fair-Value & Innovation Manifold
+    - model='garch': GARCH(1,1) Conditional Volatility & Tail-Risk Surface
     """
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(symbol)
     mt5_tf = TIMEFRAME_MAP.get(tf.upper(), mt5.TIMEFRAME_M5)
-    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 24)
-    if rates is None or len(rates) < 24:
-        raise HTTPException(status_code=404, detail="Không đủ dữ liệu dựng địa hình 3D")
+    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 32)
+    if rates is None or len(rates) < 32:
+        raise HTTPException(status_code=404, detail="Không đủ dữ liệu dựng 3D")
 
+    opens = np.array([float(r["open"]) for r in rates])
     closes = np.array([float(r["close"]) for r in rates])
+    highs = np.array([float(r["high"]) for r in rates])
+    lows = np.array([float(r["low"]) for r in rates])
     vols = np.array([float(r["tick_volume"]) for r in rates])
-    ranges = np.array([float(r["high"] - r["low"]) for r in rates])
+
+    k_est, kalman_z = kalman_filter_1d(closes)
+    garch_vol, garch_ratio = garch_1_1_volatility(closes)
+    garch_padded = np.pad(garch_vol, (1, 0), mode='edge')
 
     norm_vols = vols / (np.max(vols) if np.max(vols) > 0 else 1.0)
-    norm_ranges = ranges / (np.max(ranges) if np.max(ranges) > 0 else 1.0)
-    z_scores = (closes - np.mean(closes)) / (np.std(closes) if np.std(closes) > 0 else 1.0)
+    delta_proxy = np.where(closes >= opens, 1.0, -1.0) * norm_vols
+    k_residual = (closes - k_est) / (np.std(closes - k_est) + 1e-9)
 
+    size = 32
     grid = []
-    for i in range(24):
+    for i in range(size):
         row = []
-        for j in range(24):
-            dist_from_center = abs(j - 12) / 12.0
-            liquidity_pocket = np.exp(-2.5 * (dist_from_center ** 2))
-            wave = np.sin(i * 0.35 + z_scores[i]) * 0.6
-            height = (norm_vols[i] * 2.5 + norm_ranges[i] * 1.8) * liquidity_pocket + wave
-            row.append(round(float(height), 3))
+        for j in range(size):
+            u = (i / (size - 1)) * 2.0 - 1.0
+            v = (j / (size - 1)) * 2.0 - 1.0
+
+            if model == "kalman":
+                # Bề mặt đa tạp Kalman: Đỉnh thể hiện độ lệch khỏi Fair Value
+                ridge = np.exp(-3.0 * ((v - np.tanh(k_residual[i] * 0.6)) ** 2))
+                h = (k_residual[i] * 2.2) * ridge + np.cos(u * 3.0) * 0.4
+            elif model == "garch":
+                # Phễu rủi ro đuôi GARCH(1,1): Hai biên vểnh cao khi biến động tăng đột biến
+                vol_norm = garch_padded[i] / (np.max(garch_padded) + 1e-9)
+                tail_wing = (v ** 2) * (1.5 + vol_norm * 3.5)
+                center_dip = -np.exp(-4.0 * (v ** 2)) * 1.4
+                h = tail_wing + center_dip + np.sin(i * 0.4) * 0.3
+            else:
+                # Mặc định: Orderflow Imbalance & Liquidity Depth
+                pocket = np.exp(-2.8 * (v ** 2))
+                imbalance_wave = delta_proxy[i] * 3.4 * pocket + np.sin(j * 0.45 + i * 0.25) * 0.55
+                h = imbalance_wave + (norm_vols[i] * 1.6 * pocket)
+
+            row.append(round(float(np.clip(h, -3.5, 4.2)), 3))
         grid.append(row)
 
     return {
         "symbol": real_sym,
         "tf": tf,
+        "model": model,
         "grid": grid,
-        "latest_z": round(float(z_scores[-1]), 2),
-        "volatility_idx": round(float(np.mean(norm_ranges) * 100), 1)
+        "kalman_z": round(kalman_z, 2),
+        "garch_ratio": round(garch_ratio, 2)
     }
 
 @app.post("/api/bot/config")
@@ -166,11 +189,11 @@ def configure_quant_bot(cfg: BotConfigRequest):
     risk_manager.max_daily_loss_pct = cfg.max_dd_pct
 
     if cfg.enabled:
-        quant_bot.push_chat("QUANT DEV", "#e040fb", f"Khởi động cụm 4 AI Agent trên {real_sym} [{cfg.tf}]. Luồng WebSocket 20Hz đã khóa mục tiêu.")
-        quant_bot.push_chat("QUANT RESEARCH", "#00e5ff", f"Đang quét bề mặt biến động 3D và Z-Score Orderflow cho {real_sym}...")
-        quant_bot.push_chat("QUANT RISK", "#ff9900", f"Thiết lập lá chắn rủi ro: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
+        quant_bot.push_chat("QUANT DEV", "#e040fb", f"Khởi động cụm Multi-Task AI trên {real_sym} [{cfg.tf}]. Kalman + GARCH + Orderflow đồng bộ.")
+        quant_bot.push_chat("QUANT RESEARCH", "#00e5ff", f"Đang trích xuất trạng thái Kalman Fair-Value và phễu rủi ro GARCH(1,1)...")
+        quant_bot.push_chat("QUANT RISK", "#ff9900", f"Lá chắn Prop Firm kích hoạt: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
     else:
-        quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã ngắt chế độ tự động. Chuyển sang giám sát thủ công.")
+        quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã tạm dừng Bot AI tự động.")
 
     return {
         "status": "OK",
@@ -198,7 +221,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
     cvd, buy_vol_total, sell_vol_total = 0.0, 0.0, 0.0
 
     if not quant_bot.agent_chat:
-        quant_bot.push_chat("QUANT DEV", "#e040fb", "Hệ thống NEXUS 3D War Room sẵn sàng. Chờ tín hiệu từ 4 bộ phận...")
+        quant_bot.push_chat("QUANT DEV", "#e040fb", "Cụm Multi-Task 3D Engine (Orderflow + Kalman + GARCH) đã sẵn sàng.")
 
     try:
         while True:

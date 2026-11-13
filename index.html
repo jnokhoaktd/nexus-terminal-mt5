@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>NEXUS INSTITUTIONAL // 3D QUANT SURFACE & AI WAR ROOM</title>
+  <title>NEXUS INSTITUTIONAL // 3D MULTI-TASK QUANT ENGINE</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
@@ -91,13 +91,27 @@
     #quant-view { width: 100%; height: 100%; display: none; padding: 12px; overflow-y: auto; flex-direction: column; gap: 10px; background: var(--bg-1); }
 
     /* 3D QUANT SURFACE & AI WAR ROOM VIEW */
-    #surface3d-view { width: 100%; height: 100%; display: none; grid-template-columns: 1.45fr 1fr; background: var(--bg-0); }
+    #surface3d-view { width: 100%; height: 100%; display: none; grid-template-columns: 1.5fr 1fr; background: #04070d; }
     #three-canvas-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; border-right: 1px solid var(--border); cursor: grab; }
     #three-canvas-wrap:active { cursor: grabbing; }
     .surface-hud {
-      position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(5,7,11,0.88);
-      border: 1px solid var(--border); border-left: 2px solid var(--cyan); padding: 6px 10px; font-size: 11px;
+      position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(7, 11, 20, 0.9);
+      border: 1px solid #26354d; border-left: 3px solid #00f5d4; padding: 8px 10px; font-size: 11px; border-radius: 4px;
     }
+    .model-tabs { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+    .m-btn {
+      background: #0f172a; border: 1px solid #334155; color: #94a3b8;
+      padding: 3px 7px; font-size: 10px; cursor: pointer; font-weight: bold; border-radius: 3px;
+    }
+    .m-btn:hover { border-color: #00f5d4; color: #fff; }
+    .m-btn.active { background: linear-gradient(90deg, #00f5d4, #00bbf9); color: #000; border-color: transparent; }
+
+    .legend-bar {
+      position: absolute; bottom: 10px; left: 10px; z-index: 10; background: rgba(7, 11, 20, 0.85);
+      border: 1px solid #1e293b; padding: 4px 8px; font-size: 10px; display: flex; align-items: center; gap: 6px; border-radius: 3px;
+    }
+    .grad-pill { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #00f5d4, #00bbf9, #fee440, #ff6b35, #ff006e); }
+
     .war-room-panel { display: flex; flex-direction: column; background: var(--bg-1); overflow: hidden; }
     .agent-feed { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
     .chat-bubble {
@@ -186,7 +200,7 @@
       </div>
       <div style="display:flex; gap:3px; margin-left:8px;">
         <button class="btn-ui mode-btn active" id="btnModeChart" onclick="switchView('chart')">CHART</button>
-        <button class="btn-ui mode-btn" id="btnMode3D" onclick="switchView('3d')">3D SURFACE & AI</button>
+        <button class="btn-ui mode-btn" id="btnMode3D" onclick="switchView('3d')">3D MULTI-MODEL</button>
         <button class="btn-ui mode-btn" id="btnModeQuant" onclick="switchView('quant')">QUANT BT</button>
       </div>
     </div>
@@ -273,13 +287,22 @@
             <canvas id="draw-canvas"></canvas>
           </div>
 
-          <!-- VIEW 2: 3D TOPOGRAPHIC QUANT SURFACE + MULTI-AGENT AI WAR ROOM -->
+          <!-- VIEW 2: 3D MULTI-MODEL QUANT ENGINE + MULTI-AGENT AI WAR ROOM -->
           <div id="surface3d-view">
             <div id="three-canvas-wrap">
               <div class="surface-hud">
-                <div style="color:var(--cyan); font-weight:bold;">3D MICROSTRUCTURE & LIQUIDITY TOPOGRAPHY</div>
-                <div id="surf-meta" style="color:var(--muted); margin-top:2px;">Kéo chuột để xoay 360° | Cuộn để Zoom</div>
-                <button class="hud-btn" style="margin-top:5px;" onclick="load3DSurface()">[↻ REFRESH MESH]</button>
+                <div style="color:#00f5d4; font-weight:bold;">NEXUS 3D MULTI-TASK QUANT ENGINE</div>
+                <div id="surf-meta" style="color:#cbd5e1; margin-top:2px;">Kalman Z: -- | GARCH Ratio: --</div>
+                <div class="model-tabs">
+                  <button class="m-btn active" id="m-orderflow" onclick="switch3DModel('orderflow')">1. ORDERFLOW IMBALANCE</button>
+                  <button class="m-btn" id="m-kalman" onclick="switch3DModel('kalman')">2. KALMAN MANIFOLD</button>
+                  <button class="m-btn" id="m-garch" onclick="switch3DModel('garch')">3. GARCH(1,1) TAIL RISK</button>
+                </div>
+              </div>
+              <div class="legend-bar">
+                <span style="color:#00f5d4;">LOW / ABSORB</span>
+                <div class="grad-pill"></div>
+                <span style="color:#ff006e;">PEAK / IMBALANCE</span>
               </div>
             </div>
             <div class="war-room-panel">
@@ -291,7 +314,7 @@
           <!-- VIEW 3: QUANT BACKTESTER -->
           <div id="quant-view">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px;">
-              <strong style="color:var(--amber);">HYBRID QUANT BACKTESTER (EMA MOMENTUM + Z-SCORE MEAN REVERSION)</strong>
+              <strong style="color:var(--amber);">MULTI-TASK BACKTESTER (KALMAN FILTER + EMA + Z-SCORE)</strong>
               <div style="display:flex; gap:5px; align-items:center;">
                 <input type="number" id="bt-fast" value="9" style="width:48px; background:#000; border:1px solid var(--border); color:#fff; padding:3px;">
                 <input type="number" id="bt-slow" value="21" style="width:48px; background:#000; border:1px solid var(--border); color:#fff; padding:3px;">
@@ -379,36 +402,62 @@
   <script>
     let currentSym = "XAUUSD";
     let currentTF = "M5";
+    let current3DModel = "orderflow";
     let ws = null;
     let chart, candleSeries, volumeSeries;
     let candlesMap = new Map();
     let botRunning = false;
 
-    // --- THREE.JS 3D TOPOGRAPHIC SURFACE ENGINE ---
+    // --- THREE.JS VIBRANT NEON 3D QUANT ENGINE ---
     let scene3D, camera3D, renderer3D, mesh3D, wire3D;
     let isDragging3D = false, prevMouse3D = { x: 0, y: 0 };
-    let rotX = 0.65, rotY = -0.6, camDist = 26;
+    let rotX = 0.62, rotY = -0.55, camDist = 25;
+
+    function switch3DModel(modelName) {
+      current3DModel = modelName;
+      document.querySelectorAll(".m-btn").forEach(b => b.classList.remove("active"));
+      document.getElementById(`m-${modelName}`).classList.add("active");
+      load3DSurface();
+    }
+
+    function getVibrantQuantColor(h) {
+      // Dải màu Plasma/Cyber Neon: #00f5d4 -> #00bbf9 -> #fee440 -> #ff6b35 -> #ff006e
+      const t = Math.max(0, Math.min(1, (h + 2.0) / 5.5));
+      const c = new THREE.Color();
+      if (t < 0.25) c.setHex(0x00f5d4).lerp(new THREE.Color(0x00bbf9), t / 0.25);
+      else if (t < 0.5) c.setHex(0x00bbf9).lerp(new THREE.Color(0xfee440), (t - 0.25) / 0.25);
+      else if (t < 0.75) c.setHex(0xfee440).lerp(new THREE.Color(0xff6b35), (t - 0.5) / 0.25);
+      else c.setHex(0xff6b35).lerp(new THREE.Color(0xff006e), (t - 0.75) / 0.25);
+      return c;
+    }
 
     function init3DScene() {
       const wrap = document.getElementById("three-canvas-wrap");
       if (renderer3D) return;
       scene3D = new THREE.Scene();
-      scene3D.background = new THREE.Color(0x05070b);
+      scene3D.background = new THREE.Color(0x060a12);
+      scene3D.fog = new THREE.FogExp2(0x060a12, 0.015);
 
       camera3D = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 0.1, 1000);
       renderer3D = new THREE.WebGLRenderer({ antialias: true });
+      renderer3D.setPixelRatio(window.devicePixelRatio);
       renderer3D.setSize(wrap.clientWidth, wrap.clientHeight);
       wrap.appendChild(renderer3D.domElement);
 
-      const gridHelper = new THREE.GridHelper(24, 24, 0x1e293b, 0x0f1622);
-      gridHelper.position.y = -2.2;
+      const gridHelper = new THREE.GridHelper(24, 24, 0x00bbf9, 0x132038);
+      gridHelper.position.y = -2.8;
       scene3D.add(gridHelper);
 
-      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+      const ambient = new THREE.AmbientLight(0xffffff, 1.1);
       scene3D.add(ambient);
-      const dirLight = new THREE.DirectionalLight(0x00e5ff, 0.9);
-      dirLight.position.set(10, 20, 10);
-      scene3D.add(dirLight);
+
+      const pLight1 = new THREE.PointLight(0x00f5d4, 1.6, 50);
+      pLight1.position.set(12, 16, 12);
+      scene3D.add(pLight1);
+
+      const pLight2 = new THREE.PointLight(0xff006e, 1.4, 50);
+      pLight2.position.set(-12, 14, -12);
+      scene3D.add(pLight2);
 
       wrap.addEventListener("mousedown", e => { isDragging3D = true; prevMouse3D = { x: e.clientX, y: e.clientY }; });
       window.addEventListener("mouseup", () => { isDragging3D = false; });
@@ -419,13 +468,13 @@
         prevMouse3D = { x: e.clientX, y: e.clientY };
       });
       wrap.addEventListener("wheel", e => {
-        camDist = Math.max(12, Math.min(45, camDist + e.deltaY * 0.015));
+        camDist = Math.max(12, Math.min(44, camDist + e.deltaY * 0.015));
       });
 
       function animate3D() {
         requestAnimationFrame(animate3D);
         if (document.getElementById("surface3d-view").style.display === "grid") {
-          if (!isDragging3D) rotY += 0.002;
+          if (!isDragging3D) rotY += 0.0025;
           camera3D.position.x = camDist * Math.sin(rotY) * Math.cos(rotX);
           camera3D.position.y = camDist * Math.sin(rotX);
           camera3D.position.z = camDist * Math.cos(rotY) * Math.cos(rotX);
@@ -446,14 +495,14 @@
       }
 
       try {
-        const res = await fetch(`/api/quant/surface/${currentSym}/${currentTF}`);
+        const res = await fetch(`/api/quant/surface/${currentSym}/${currentTF}?model=${current3DModel}`);
         if (!res.ok) return;
         const data = await res.json();
-        document.getElementById("surf-meta").innerText = `${data.symbol} [${data.tf}] | Z-Score: ${data.latest_z} | Volatility Index: ${data.volatility_idx}%`;
+        document.getElementById("surf-meta").innerText = `${data.symbol} [${data.tf}] | Kalman Z: ${data.kalman_z} | GARCH Vol Ratio: ${data.garch_ratio}x`;
 
         if (mesh3D) { scene3D.remove(mesh3D); scene3D.remove(wire3D); }
 
-        const size = 24;
+        const size = 32;
         const geom = new THREE.PlaneGeometry(18, 18, size - 1, size - 1);
         geom.rotateX(-Math.PI / 2);
 
@@ -465,24 +514,19 @@
           const h = data.grid[row][col];
           pos.setY(i, h);
 
-          // Tô màu theo độ cao (Xanh Cyan -> Vàng Amber -> Đỏ Đỉnh thanh khoản)
-          const c = new THREE.Color();
-          if (h > 1.5) c.setHex(0xff3b30);
-          else if (h > 0.3) c.setHex(0xff9900);
-          else if (h > -0.5) c.setHex(0x00e5ff);
-          else c.setHex(0x00d26a);
+          const c = getVibrantQuantColor(h);
           colors.push(c.r, c.g, c.b);
         }
         geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geom.computeVertexNormals();
 
-        const mat = new THREE.MeshStandardMaterial({
-          vertexColors: true, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.2, transparent: true, opacity: 0.85
+        const mat = new THREE.MeshPhongMaterial({
+          vertexColors: true, side: THREE.DoubleSide, shininess: 85, specular: 0x44ffff, transparent: true, opacity: 0.92
         });
         mesh3D = new THREE.Mesh(geom, mat);
         scene3D.add(mesh3D);
 
-        const wireMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.14 });
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0x00f5d4, wireframe: true, transparent: true, opacity: 0.22 });
         wire3D = new THREE.Mesh(geom, wireMat);
         scene3D.add(wire3D);
       } catch (e) {}
@@ -965,7 +1009,7 @@
     }
 
     async function executeBacktest() {
-      log(`Running Hybrid Quant Backtest: ${currentSym} [${currentTF}]...`);
+      log(`Running Multi-Task Backtest (Kalman + EMA + Z-Score): ${currentSym} [${currentTF}]...`);
       const res = await fetch("/api/quant/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -995,7 +1039,7 @@
         width: btBox.clientWidth, height: btBox.clientHeight
       });
       const btSeries = btChart.addAreaSeries({
-        lineColor: '#00e5ff', topColor: 'rgba(0, 229, 255, 0.3)', bottomColor: 'rgba(0, 229, 255, 0.0)'
+        lineColor: '#00f5d4', topColor: 'rgba(0, 245, 212, 0.3)', bottomColor: 'rgba(0, 245, 212, 0.0)'
       });
       btSeries.setData(data.equity_curve);
       log(`BT Done: Net $${data.net_profit} | WR ${data.win_rate}% | Sharpe ${data.sharpe}`);
