@@ -3,7 +3,15 @@ import json
 import numpy as np
 from datetime import datetime
 import MetaTrader5 as mt5
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import Request
+
+def verify_local_owner(request: Request):
+    # Chặn mọi thao tác vào lệnh / đóng lệnh / chỉnh Bot nếu truy cập qua link chia sẻ từ xa
+    forwarded = request.headers.get("x-forwarded-for")
+    client_host = request.client.host if request.client else ""
+    if forwarded or client_host not in ("127.0.0.1", "localhost", "::1"):
+        raise HTTPException(status_code=403, detail="VIEW-ONLY MODE: Chỉ chủ máy mới có quyền đặt lệnh!")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -224,7 +232,7 @@ def get_institutional_analytics(symbol: str, tf: str, model: str = "orderflow"):
     }
 
 @app.post("/api/bot/config")
-def configure_quant_bot(cfg: BotConfigRequest):
+def configure_quant_bot(cfg: BotConfigRequest, request: Request): verify_local_owner(request);
     real_sym = resolve_symbol(cfg.symbol)
     quant_bot.enabled = cfg.enabled
     quant_bot.symbol = real_sym
@@ -363,7 +371,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
         pass
 
 @app.post("/api/order")
-def place_order(req: OrderRequest):
+def place_order(req: OrderRequest, request: Request): verify_local_owner(request);
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(req.symbol)
@@ -403,7 +411,7 @@ def place_order(req: OrderRequest):
     return {"status": "OK", "ticket": res.order, "vol": volume, "price": res.price}
 
 @app.post("/api/breakeven/{ticket}")
-def move_breakeven(ticket: int):
+def move_breakeven(ticket: int, request: Request): verify_local_owner(request);
     pos = mt5.positions_get(ticket=ticket)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
@@ -415,7 +423,7 @@ def move_breakeven(ticket: int):
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
 @app.post("/api/close/{ticket}")
-def close_position(ticket: int):
+def close_position(ticket: int, request: Request): verify_local_owner(request);
     pos = mt5.positions_get(ticket=ticket)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
@@ -435,4 +443,5 @@ def close_position(ticket: int):
         req["type_filling"] = mt5.ORDER_FILLING_FOK
         res = mt5.order_send(req)
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
+
 

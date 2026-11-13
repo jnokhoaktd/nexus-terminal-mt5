@@ -483,6 +483,17 @@
   </div>
 
   <script>
+        const isGuestViewer = !["127.0.0.1", "localhost"].includes(location.hostname);
+    if (isGuestViewer) {
+      window.addEventListener("DOMContentLoaded", () => {
+        document.querySelector(".brand").innerText = "NEXUS LIVE [VIEW ONLY]";
+        document.getElementById("t-bal").style.filter = "blur(5px)";
+        document.getElementById("t-eq").style.filter = "blur(5px)";
+        document.querySelectorAll(".btn-trade, .btn-bot").forEach(b => {
+          b.disabled = true; b.style.opacity = "0.35"; b.style.cursor = "not-allowed";
+        });
+      });
+    }
     let currentSym = "XAUUSD";
     let currentTF = "M5";
     let current3DModel = "orderflow";
@@ -1270,5 +1281,6 @@
   </script>
 </body>
 </html>
+
 
 
