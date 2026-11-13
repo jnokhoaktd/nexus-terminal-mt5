@@ -1896,8 +1896,206 @@
   window.addEventListener('resize', alignPositionWithPriceScale);
 })();
 </script>
+<!-- NEXUS_BLOOMBERG_SHELL_START -->
+<style>
+  :root {
+    --bb-bg: #05070a;
+    --bb-panel: #0b0f17;
+    --bb-amber: #ff9900;
+    --bb-cyan: #38bdf8;
+    --bb-green: #10b981;
+    --bb-red: #ef4444;
+    --bb-border: rgba(255, 153, 0, 0.28);
+  }
+  body {
+    padding-top: 38px !important;
+    background-color: var(--bb-bg) !important;
+  }
+  #bb-top-terminal-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    z-index: 100000;
+    background: #030508;
+    border-bottom: 1px solid var(--bb-amber);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 11px;
+    color: #e2e8f0;
+    gap: 12px;
+  }
+  .bb-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    color: var(--bb-amber);
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  .bb-cmd-wrap {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    max-width: 520px;
+    background: #0f1623;
+    border: 1px solid rgba(255, 153, 0, 0.45);
+    height: 24px;
+    padding: 0 8px;
+  }
+  .bb-cmd-prefix {
+    color: var(--bb-amber);
+    font-weight: 800;
+    margin-right: 6px;
+    font-size: 10px;
+  }
+  #bb-cmd-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 11px;
+    width: 100%;
+    text-transform: uppercase;
+  }
+  .bb-go-btn {
+    background: var(--bb-amber);
+    color: #000000;
+    border: none;
+    font-family: inherit;
+    font-weight: 800;
+    font-size: 10px;
+    padding: 2px 7px;
+    cursor: pointer;
+  }
+  .bb-telemetry {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .bb-pill {
+    padding: 2px 6px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  /* Tinh chỉnh HUD V4 để gọn và khớp màu Bloomberg */
+  #nexus-quant-hud {
+    bottom: 14px !important;
+    left: 14px !important;
+    width: 365px !important;
+    border-top: 2px solid var(--bb-amber) !important;
+  }
+</style>
+
+<div id="bb-top-terminal-bar">
+  <div class="bb-brand">
+    <span>NEXUS // BLOOMBERG-CORE</span>
+  </div>
+
+  <div class="bb-cmd-wrap" title="Nhấn Ctrl+K để nhập lệnh nhanh: GP, VOLS, RETRAIN, CSV, RISK">
+    <span class="bb-cmd-prefix">CMD &gt;</span>
+    <input id="bb-cmd-input" type="text" placeholder="NHẬP LỆNH (VD: GP, VOLS, RETRAIN, CSV, RISK) + ENTER..." autocomplete="off" />
+    <button class="bb-go-btn" onclick="executeBloombergCommand()">GO</button>
+  </div>
+
+  <div class="bb-telemetry">
+    <span class="bb-pill" id="bb-session-clock">SESS: --</span>
+    <span class="bb-pill" id="bb-mt5-status" style="color:#10b981;">MT5: READY</span>
+    <span class="bb-pill" id="bb-latency" style="color:#38bdf8;">PING: 8ms</span>
+  </div>
+</div>
+
+<script>
+(function() {
+  window.executeBloombergCommand = function(rawCmd) {
+    const input = document.getElementById('bb-cmd-input');
+    const cmd = (rawCmd || (input ? input.value : '')).trim().toUpperCase().replace(/\s*GO$/, '');
+    if (!cmd) return;
+
+    if (cmd === 'RETRAIN' || cmd === 'TRAIN') {
+      if (typeof window.runQuantEngine === 'function') window.runQuantEngine(true);
+    } else if (cmd === 'CSV' || cmd === 'EXPORT') {
+      if (typeof window.exportResearchCSV === 'function') window.exportResearchCSV();
+    } else if (cmd === 'RISK' || cmd === 'HUD') {
+      const hud = document.getElementById('nexus-quant-hud');
+      if (hud) hud.style.display = (hud.style.display === 'none') ? 'block' : 'none';
+    } else if (cmd === 'VOLS' || cmd === '3D') {
+      const tabs = Array.from(document.querySelectorAll('button, a, div'));
+      const target = tabs.find(el => el.innerText && el.innerText.includes('3D'));
+      if (target) target.click();
+    } else if (cmd === 'GP' || cmd === 'CHART') {
+      const tabs = Array.from(document.querySelectorAll('button, a, div'));
+      const target = tabs.find(el => el.innerText && (el.innerText.includes('CHART') || el.innerText.includes('TERMINAL')));
+      if (target) target.click();
+    }
+
+    if (input) {
+      input.value = '';
+      input.placeholder = `ĐÃ THỰC THI: ${cmd} [GO]`;
+      setTimeout(() => {
+        input.placeholder = 'NHẬP LỆNH (VD: GP, VOLS, RETRAIN, CSV, RISK) + ENTER...';
+      }, 2000);
+    }
+  };
+
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      const inp = document.getElementById('bb-cmd-input');
+      if (inp) inp.focus();
+    }
+  });
+
+  const cmdInp = document.getElementById('bb-cmd-input');
+  if (cmdInp) {
+    cmdInp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') executeBloombergCommand();
+    });
+  }
+
+  function updateSessionAndHealth() {
+    const utcH = new Date().getUTCHours();
+    let sess = 'SYDNEY/TOKYO';
+    if (utcH >= 7 && utcH < 12) sess = 'LONDON OPEN';
+    else if (utcH >= 12 && utcH < 16) sess = 'LDN + NY OVERLAP';
+    else if (utcH >= 16 && utcH < 21) sess = 'NEW YORK';
+
+    const sessEl = document.getElementById('bb-session-clock');
+    if (sessEl) sessEl.innerText = `SESS: ${sess}`;
+
+    const t0 = performance.now();
+    fetch('/api/terminal/telemetry')
+      .then(r => r.json())
+      .then(d => {
+        const ms = Math.max(1, Math.round(performance.now() - t0));
+        const pingEl = document.getElementById('bb-latency');
+        const mt5El = document.getElementById('bb-mt5-status');
+        if (pingEl) pingEl.innerText = `PING: ${ms}ms`;
+        if (mt5El) {
+          mt5El.innerText = d.mt5_connected ? `MT5: ${d.mode}` : 'MT5: WEEKEND/CACHE';
+          mt5El.style.color = d.mt5_connected ? '#10b981' : '#ff9900';
+        }
+      })
+      .catch(() => {});
+  }
+
+  setInterval(updateSessionAndHealth, 5000);
+  setTimeout(updateSessionAndHealth, 400);
+})();
+</script>
+<!-- NEXUS_BLOOMBERG_SHELL_END -->
 </body>
 </html>
+
 
 
 
