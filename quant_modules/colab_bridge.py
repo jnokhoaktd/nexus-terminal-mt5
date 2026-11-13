@@ -1,6 +1,8 @@
 ﻿import urllib.request
 import json
+from datetime import datetime, timedelta
 import numpy as np
+import MetaTrader5 as mt5
 
 class ColabDeepQuantBridge:
     def __init__(self):
@@ -87,54 +89,87 @@ class ColabDeepQuantBridge:
             }
         return self.last_prediction
 
-def build_footprint_profile(candles: list, bins: int = 18):
+def build_footprint_profile(candles: list, symbol: str = "XAUUSD", bins: int = 18):
+    """
+    Xây dựng Footprint từ dữ liệu Từng Nhịp Tick thật (mt5.copy_ticks_from) bằng thuật toán Tick-Rule
+    (Uptick Ask -> Aggressive Buy, Downtick Bid -> Aggressive Sell).
+    Chỉ fallback về OHLCV nếu broker chặn lịch sử tick.
+    """
+    ticks = None
+    if mt5.terminal_info() is not None and candles:
+        start_dt = datetime.fromtimestamp(candles[-25]["time"])
+        ticks = mt5.copy_ticks_from(symbol, start_dt, 15000, mt5.COPY_TICKS_ALL)
+
+    if ticks is not None and len(ticks) > 50:
+        bids = ticks["bid"]
+        asks = ticks["ask"]
+        flags = ticks["flags"]
+        vols = np.where(ticks["volume"] > 0, ticks["volume"], 1.0)
+        mids = (bids + asks) / 2.0
+
+        low_min, high_max = float(np.min(mids)), float(np.max(mids))
+        if high_max > low_min:
+            step = (high_max - low_min) / bins
+            levels = [
+                {"price": round(low_min + (i + 0.5) * step, 2), "bid_vol": 0.0, "ask_vol": 0.0, "total": 0.0, "imbalance": "NONE"}
+                for i in range(bins)
+            ]
+            for i in range(1, len(ticks)):
+                idx = min(bins - 1, max(0, int((mids[i] - low_min) / step)))
+                v = float(vols[i])
+                if flags[i] & mt5.TICK_FLAG_BUY:
+                    levels[idx]["ask_vol"] += v
+                elif flags[i] & mt5.TICK_FLAG_SELL:
+                    levels[idx]["bid_vol"] += v
+                else:
+                    # Lee-Ready Tick Rule cho CFD/Forex OTC
+                    if asks[i] > asks[i - 1] or bids[i] > bids[i - 1]:
+                        levels[idx]["ask_vol"] += v
+                    elif bids[i] < bids[i - 1] or asks[i] < asks[i - 1]:
+                        levels[idx]["bid_vol"] += v
+
+            poc_lv = max(levels, key=lambda x: x["bid_vol"] + x["ask_vol"])
+            total_delta = 0.0
+            for lv in levels:
+                lv["bid_vol"] = round(lv["bid_vol"], 1)
+                lv["ask_vol"] = round(lv["ask_vol"], 1)
+                lv["total"] = round(lv["bid_vol"] + lv["ask_vol"], 1)
+                total_delta += (lv["ask_vol"] - lv["bid_vol"])
+                if lv["ask_vol"] > lv["bid_vol"] * 1.8 and lv["ask_vol"] > 10:
+                    lv["imbalance"] = "BUY_IMB"
+                elif lv["bid_vol"] > lv["ask_vol"] * 1.8 and lv["bid_vol"] > 10:
+                    lv["imbalance"] = "SELL_IMB"
+
+            return {
+                "levels": list(reversed(levels)),
+                "poc_price": poc_lv["price"],
+                "total_delta": round(total_delta, 1),
+                "feed_type": f"MT5_REAL_TICKS ({len(ticks)} ticks)"
+            }
+
+    # Fallback OHLCV nếu không lấy được lịch sử tick
     if not candles or len(candles) < 10:
-        return {"levels": [], "poc_price": 0.0, "total_delta": 0.0}
+        return {"levels": [], "poc_price": 0.0, "total_delta": 0.0, "feed_type": "NO_DATA"}
 
     recent = candles[-30:]
     low_min = min(c["low"] for c in recent)
     high_max = max(c["high"] for c in recent)
-    if high_max <= low_min:
-        return {"levels": [], "poc_price": low_min, "total_delta": 0.0}
-
-    step = (high_max - low_min) / bins
-    levels = []
-    for i in range(bins):
-        p_low = low_min + i * step
-        p_high = p_low + step
-        p_mid = (p_low + p_high) / 2.0
-        levels.append({"price": round(p_mid, 2), "bid_vol": 0.0, "ask_vol": 0.0, "total": 0.0, "imbalance": "NONE"})
-
+    step = (high_max - low_min) / bins if high_max > low_min else 1.0
+    levels = [{"price": round(low_min + (i + 0.5) * step, 2), "bid_vol": 0.0, "ask_vol": 0.0, "total": 0.0, "imbalance": "NONE"} for i in range(bins)]
     for c in recent:
         vol = float(c.get("volume", 10.0))
         is_bull = c["close"] >= c["open"]
-        touched = [lv for lv in levels if c["low"] <= lv["price"] <= c["high"]]
-        if not touched:
-            closest = min(levels, key=lambda lv: abs(lv["price"] - c["close"]))
-            touched = [closest]
+        touched = [lv for lv in levels if c["low"] <= lv["price"] <= c["high"]] or [levels[0]]
         share = vol / len(touched)
         for lv in touched:
-            if is_bull:
-                lv["ask_vol"] += share * 0.68
-                lv["bid_vol"] += share * 0.32
-            else:
-                lv["bid_vol"] += share * 0.68
-                lv["ask_vol"] += share * 0.32
+            lv["ask_vol"] += share * (0.68 if is_bull else 0.32)
+            lv["bid_vol"] += share * (0.32 if is_bull else 0.68)
 
     poc_lv = max(levels, key=lambda x: x["bid_vol"] + x["ask_vol"])
-    total_delta = 0.0
+    total_delta = sum(lv["ask_vol"] - lv["bid_vol"] for lv in levels)
     for lv in levels:
         lv["bid_vol"] = round(lv["bid_vol"], 1)
         lv["ask_vol"] = round(lv["ask_vol"], 1)
         lv["total"] = round(lv["bid_vol"] + lv["ask_vol"], 1)
-        total_delta += (lv["ask_vol"] - lv["bid_vol"])
-        if lv["ask_vol"] > lv["bid_vol"] * 1.8 and lv["ask_vol"] > 5:
-            lv["imbalance"] = "BUY_IMB"
-        elif lv["bid_vol"] > lv["ask_vol"] * 1.8 and lv["bid_vol"] > 5:
-            lv["imbalance"] = "SELL_IMB"
 
-    return {
-        "levels": list(reversed(levels)),
-        "poc_price": poc_lv["price"],
-        "total_delta": round(total_delta, 1)
-    }
+    return {"levels": list(reversed(levels)), "poc_price": poc_lv["price"], "total_delta": round(total_delta, 1), "feed_type": "OHLCV_PROXY"}

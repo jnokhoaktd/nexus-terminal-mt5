@@ -203,7 +203,7 @@ def get_institutional_analytics(symbol: str, tf: str, model: str = "orderflow"):
             row.append(round(float(np.clip(h, -3.0, 3.5)), 3))
         grid.append(row)
 
-    footprint = build_footprint_profile(raw_candles, bins=16)
+    footprint = build_footprint_profile(raw_candles, symbol=real_sym, bins=16)
     dl_pred = colab_bridge.infer(raw_candles)
 
     return {
@@ -435,3 +435,4 @@ def close_position(ticket: int):
         req["type_filling"] = mt5.ORDER_FILLING_FOK
         res = mt5.order_send(req)
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
+
