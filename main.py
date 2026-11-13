@@ -4,14 +4,6 @@ import numpy as np
 from datetime import datetime
 import MetaTrader5 as mt5
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi import Request
-
-def verify_local_owner(request: Request):
-    # Chặn mọi thao tác vào lệnh / đóng lệnh / chỉnh Bot nếu truy cập qua link chia sẻ từ xa
-    forwarded = request.headers.get("x-forwarded-for")
-    client_host = request.client.host if request.client else ""
-    if forwarded or client_host not in ("127.0.0.1", "localhost", "::1"):
-        raise HTTPException(status_code=403, detail="VIEW-ONLY MODE: Chỉ chủ máy mới có quyền đặt lệnh!")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -29,6 +21,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def verify_local_owner(request: Request):
+    forwarded = request.headers.get("x-forwarded-for")
+    client_host = request.client.host if request.client else ""
+    if forwarded or client_host not in ("127.0.0.1", "localhost", "::1"):
+        raise HTTPException(status_code=403, detail="VIEW-ONLY MODE: Chỉ chủ máy mới có quyền đặt lệnh!")
 
 TIMEFRAME_MAP = {
     "M1": mt5.TIMEFRAME_M1,
@@ -109,13 +107,15 @@ def get_watchlist():
     return {"connected": True, "symbols": visible or ["XAUUSD"]}
 
 @app.post("/api/colab/connect")
-def connect_colab(req: ColabConnectRequest):
+def connect_colab(req: ColabConnectRequest, request: Request):
+    verify_local_owner(request)
     ok, msg = colab_bridge.set_url(req.url)
     quant_bot.push_chat("QUANT DEV", "#38bdf8", msg)
     return {"connected": ok, "msg": msg}
 
 @app.post("/api/colab/train")
-def train_colab_model(req: ColabTrainRequest):
+def train_colab_model(req: ColabTrainRequest, request: Request):
+    verify_local_owner(request)
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(req.symbol)
@@ -232,7 +232,8 @@ def get_institutional_analytics(symbol: str, tf: str, model: str = "orderflow"):
     }
 
 @app.post("/api/bot/config")
-def configure_quant_bot(cfg: BotConfigRequest, request: Request): verify_local_owner(request);
+def configure_quant_bot(cfg: BotConfigRequest, request: Request):
+    verify_local_owner(request)
     real_sym = resolve_symbol(cfg.symbol)
     quant_bot.enabled = cfg.enabled
     quant_bot.symbol = real_sym
@@ -274,7 +275,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
     cvd, buy_vol_total, sell_vol_total = 0.0, 0.0, 0.0
 
     if not quant_bot.agent_chat:
-        quant_bot.push_chat("QUANT DEV", "#38bdf8", "NEXUS Quant Engine sẵn sàng. Hãy dán link Colab GPU và bấm TRAIN ON GPU để huấn luyện mô hình.")
+        quant_bot.push_chat("QUANT DEV", "#38bdf8", "NEXUS Quant Engine & Live Stream đã sẵn sàng.")
 
     try:
         while True:
@@ -371,7 +372,8 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
         pass
 
 @app.post("/api/order")
-def place_order(req: OrderRequest, request: Request): verify_local_owner(request);
+def place_order(req: OrderRequest, request: Request):
+    verify_local_owner(request)
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(req.symbol)
@@ -394,16 +396,16 @@ def place_order(req: OrderRequest, request: Request): verify_local_owner(request
         sl = price + req.sl_points * point if req.sl_points > 0 else 0.0
         tp = price - req.tp_points * point if req.tp_points > 0 else 0.0
 
-    request = {
+    req_dict = {
         "action": mt5.TRADE_ACTION_DEAL, "symbol": real_sym, "volume": volume,
         "type": action_type, "price": price, "sl": round(sl, sym.digits), "tp": round(tp, sym.digits),
         "deviation": 20, "magic": 202699, "comment": "NEXUS_MANUAL",
         "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
     }
-    res = mt5.order_send(request)
+    res = mt5.order_send(req_dict)
     if res.retcode != mt5.TRADE_RETCODE_DONE:
-        request["type_filling"] = mt5.ORDER_FILLING_FOK
-        res = mt5.order_send(request)
+        req_dict["type_filling"] = mt5.ORDER_FILLING_FOK
+        res = mt5.order_send(req_dict)
 
     if res.retcode != mt5.TRADE_RETCODE_DONE:
         return {"status": "ERR", "code": res.retcode, "msg": res.comment}
@@ -411,7 +413,8 @@ def place_order(req: OrderRequest, request: Request): verify_local_owner(request
     return {"status": "OK", "ticket": res.order, "vol": volume, "price": res.price}
 
 @app.post("/api/breakeven/{ticket}")
-def move_breakeven(ticket: int, request: Request): verify_local_owner(request);
+def move_breakeven(ticket: int, request: Request):
+    verify_local_owner(request)
     pos = mt5.positions_get(ticket=ticket)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
@@ -423,7 +426,8 @@ def move_breakeven(ticket: int, request: Request): verify_local_owner(request);
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
 @app.post("/api/close/{ticket}")
-def close_position(ticket: int, request: Request): verify_local_owner(request);
+def close_position(ticket: int, request: Request):
+    verify_local_owner(request)
     pos = mt5.positions_get(ticket=ticket)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
@@ -432,16 +436,14 @@ def close_position(ticket: int, request: Request): verify_local_owner(request);
     close_type = mt5.ORDER_TYPE_SELL if p.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
     price = tick.bid if p.type == mt5.POSITION_TYPE_BUY else tick.ask
 
-    req = {
+    req_dict = {
         "action": mt5.TRADE_ACTION_DEAL, "symbol": p.symbol, "volume": p.volume,
         "type": close_type, "position": p.ticket, "price": price,
         "deviation": 20, "magic": 202699, "comment": "NEXUS_CLOSE",
         "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
     }
-    res = mt5.order_send(req)
+    res = mt5.order_send(req_dict)
     if res.retcode != mt5.TRADE_RETCODE_DONE:
-        req["type_filling"] = mt5.ORDER_FILLING_FOK
-        res = mt5.order_send(req)
+        req_dict["type_filling"] = mt5.ORDER_FILLING_FOK
+        res = mt5.order_send(req_dict)
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
-
-
