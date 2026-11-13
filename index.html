@@ -1404,6 +1404,22 @@
 <script>
 let entryLine = null, tpLine = null, slLine = null;
 
+function getLatestScreenPrice() {
+  try {
+    if (typeof lastBar !== 'undefined' && lastBar && lastBar.close) return lastBar.close;
+    const priceEls = document.querySelectorAll('[id*="price"], [class*="price"], span, div');
+    for (let el of priceEls) {
+      if (el.children.length === 0) {
+        const txt = el.innerText.trim();
+        if (/^\d{1,6}\.\d{2,5}$/.test(txt)) {
+          const val = parseFloat(txt);
+          if (val > 0) return val;
+        }
+      }
+    }
+  } catch (e) {}
+  return 0;
+}
 function getActiveChartSymbol() {
   const sel = document.querySelector('select');
   if (sel && sel.value) return sel.value;
@@ -1416,7 +1432,7 @@ async function retrainQuantBrain() {
   btn.innerText = "TRAINING...";
   try {
     const sym = getActiveChartSymbol();
-    const res = await fetch(`/api/quant/retrain?symbol=${encodeURIComponent(sym)}`, { method: 'POST' });
+    const res = await fetch(`/api/quant/retrain?symbol=${encodeURIComponent(sym)}&last_price=${getLatestScreenPrice()}`, { method: 'POST' });
     const data = await res.json();
     btn.innerText = `TRAINED (${data.epochs || 120})`;
     setTimeout(() => { btn.innerText = "RETRAIN"; }, 2500);
@@ -1429,7 +1445,7 @@ async function retrainQuantBrain() {
 async function updateTradeOverlay() {
   try {
     const sym = getActiveChartSymbol();
-    const res = await fetch(`/api/quant/decision?symbol=${encodeURIComponent(sym)}`);
+    const res = await fetch(`/api/quant/decision?symbol=${encodeURIComponent(sym)}&last_price=${getLatestScreenPrice()}`);
     if (!res.ok) return;
     const data = await res.json();
     const sig = data.signal;
@@ -1489,6 +1505,7 @@ setTimeout(updateTradeOverlay, 800);
 </script>
 </body>
 </html>
+
 
 
 
