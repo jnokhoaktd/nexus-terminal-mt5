@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>NEXUS INSTITUTIONAL // QUANT & EXECUTION TERMINAL</title>
+  <title>NEXUS INSTITUTIONAL // 3D QUANT SURFACE & AI WAR ROOM</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
       --bg-0: #05070b;
@@ -21,7 +22,7 @@
     input { user-select: text; }
     body { background: var(--bg-0); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; }
 
-    /* TOP COMMAND BAR */
+    /* TOP BAR */
     .topbar {
       background: var(--bg-2); border-bottom: 1px solid var(--amber);
       height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; flex-shrink: 0;
@@ -30,7 +31,7 @@
     .cmd-box { display: flex; align-items: center; gap: 5px; }
     .sym-input {
       background: #000; border: 1px solid var(--amber); color: var(--amber);
-      padding: 3px 7px; width: 100px; font-weight: bold; text-transform: uppercase;
+      padding: 3px 7px; width: 90px; font-weight: bold; text-transform: uppercase;
     }
     .btn-ui {
       background: var(--bg-1); border: 1px solid var(--border); color: var(--text);
@@ -43,11 +44,11 @@
     .telemetry { display: flex; gap: 10px; align-items: center; font-size: 11px; }
     .telemetry span { color: var(--muted); }
 
-    /* FLEXIBLE RESIZABLE WORKSPACE */
+    /* WORKSPACE */
     .workspace { display: flex; flex: 1; overflow: hidden; width: 100%; height: calc(100vh - 36px); }
 
     /* LEFT WATCHLIST */
-    #pane-left { width: 140px; min-width: 0; background: var(--bg-1); display: flex; flex-direction: column; overflow: hidden; }
+    #pane-left { width: 130px; min-width: 0; background: var(--bg-1); display: flex; flex-direction: column; overflow: hidden; }
     .wl-list { flex: 1; overflow-y: auto; }
     .wl-item {
       padding: 6px 8px; border-bottom: 1px solid #131a26; cursor: pointer;
@@ -59,7 +60,7 @@
     #pane-center { flex: 1; min-width: 250px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-0); }
     #chart-section { flex: 1; min-height: 150px; position: relative; display: flex; overflow: hidden; }
 
-    /* FULL TRADINGVIEW DRAWING TOOLBAR */
+    /* TRADINGVIEW TOOLBAR */
     .tv-toolbar {
       width: 38px; background: var(--bg-1); border-right: 1px solid var(--border);
       display: flex; flex-direction: column; align-items: center; padding: 6px 0; gap: 4px; z-index: 20; flex-shrink: 0; overflow-y: auto;
@@ -74,64 +75,73 @@
     .tool-btn.magnet-on { background: rgba(255, 153, 0, 0.15); border-color: var(--amber); color: var(--amber); }
     .tool-sep { width: 22px; height: 1px; background: var(--border); margin: 2px 0; flex-shrink: 0; }
 
-    /* COLOR SWATCH BUTTON & POPOVER */
-    .color-trigger {
-      width: 24px; height: 24px; border-radius: 4px; border: 1px solid #475569;
-      cursor: pointer; flex-shrink: 0; position: relative; display: flex; align-items: center; justify-content: center;
-    }
-    .color-trigger:hover { border-color: #fff; }
+    .color-trigger { width: 24px; height: 24px; border-radius: 4px; border: 1px solid #475569; cursor: pointer; flex-shrink: 0; }
     .color-popover {
       position: absolute; left: 42px; top: 280px; z-index: 50; background: var(--bg-2);
       border: 1px solid var(--amber); padding: 8px; border-radius: 6px; display: none;
       flex-direction: column; gap: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.85); width: 156px;
     }
     .swatch-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-    .swatch {
-      width: 22px; height: 22px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.2);
-      cursor: pointer; transition: transform 0.1s;
-    }
-    .swatch:hover { transform: scale(1.15); border-color: #fff; }
+    .swatch { width: 22px; height: 22px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; }
     .custom-color-row { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 5px; }
-    .custom-color-row input[type="color"] { width: 45px; height: 20px; border: none; background: transparent; cursor: pointer; padding: 0; }
 
-    /* CHART & OVERLAY CANVAS */
     #chart-container { flex: 1; position: relative; overflow: hidden; }
     #chart-view { width: 100%; height: 100%; position: relative; }
     #draw-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
     #quant-view { width: 100%; height: 100%; display: none; padding: 12px; overflow-y: auto; flex-direction: column; gap: 10px; background: var(--bg-1); }
+
+    /* 3D QUANT SURFACE & AI WAR ROOM VIEW */
+    #surface3d-view { width: 100%; height: 100%; display: none; grid-template-columns: 1.45fr 1fr; background: var(--bg-0); }
+    #three-canvas-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; border-right: 1px solid var(--border); cursor: grab; }
+    #three-canvas-wrap:active { cursor: grabbing; }
+    .surface-hud {
+      position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(5,7,11,0.88);
+      border: 1px solid var(--border); border-left: 2px solid var(--cyan); padding: 6px 10px; font-size: 11px;
+    }
+    .war-room-panel { display: flex; flex-direction: column; background: var(--bg-1); overflow: hidden; }
+    .agent-feed { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .chat-bubble {
+      background: #070b12; border: 1px solid #162032; padding: 6px 8px; border-radius: 4px; font-size: 11px; line-height: 1.4;
+    }
+    .chat-meta { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; margin-bottom: 3px; }
 
     .hud-bar {
       position: absolute; top: 8px; left: 10px; z-index: 10; display: flex; gap: 8px; align-items: center;
       background: rgba(5, 7, 11, 0.85); padding: 4px 8px; border-left: 2px solid var(--amber); border: 1px solid var(--border);
     }
     .hud-btn { background: #161f30; border: 1px solid #2b3a55; color: var(--cyan); padding: 2px 6px; font-size: 10px; cursor: pointer; font-weight: bold; }
-    .hud-btn:hover { background: var(--cyan); color: #000; }
 
     /* BOTTOM BLOTTER */
-    #pane-bottom { height: 155px; min-height: 0; display: grid; grid-template-columns: 1.5fr 1fr; gap: 1px; background-color: var(--border); overflow: hidden; }
+    #pane-bottom { height: 145px; min-height: 0; display: grid; grid-template-columns: 1.5fr 1fr; gap: 1px; background-color: var(--border); overflow: hidden; }
     .sub-panel { background: var(--bg-1); display: flex; flex-direction: column; overflow: hidden; }
 
-    /* RIGHT EXECUTION DOCK */
-    #pane-right { width: 255px; min-width: 0; background: var(--bg-1); display: flex; flex-direction: column; overflow: hidden; }
-    .right-scroll { padding: 8px; display: flex; flex-direction: column; gap: 8px; flex: 1; overflow-y: auto; }
+    /* RIGHT EXECUTION + 4-PILLAR QUANT DESK */
+    #pane-right { width: 275px; min-width: 0; background: var(--bg-1); display: flex; flex-direction: column; overflow: hidden; }
+    .right-scroll { padding: 8px; display: flex; flex-direction: column; gap: 7px; flex: 1; overflow-y: auto; }
 
     .exec-compact { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
     .btn-trade {
-      padding: 6px 8px; border: none; cursor: pointer; display: flex; flex-direction: column; align-items: center;
-      border-radius: 3px; transition: filter 0.1s;
+      padding: 6px 8px; border: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; border-radius: 3px;
     }
-    .btn-trade:hover { filter: brightness(1.12); }
     .btn-trade.sell { background: var(--red); color: #fff; }
     .btn-trade.buy { background: var(--green); color: #000; }
-    .btn-trade .side-lbl { font-size: 10px; font-weight: 900; opacity: 0.9; }
-    .btn-trade .price-lbl { font-size: 14px; font-weight: 900; margin-top: 1px; }
+    .btn-trade .side-lbl { font-size: 10px; font-weight: 900; }
+    .btn-trade .price-lbl { font-size: 14px; font-weight: 900; }
 
-    .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
     .inp-box { background: #05070b; border: 1px solid var(--border); padding: 3px 6px; display: flex; justify-content: space-between; align-items: center; }
     .inp-box span { font-size: 10px; color: var(--muted); }
-    .inp-box input { width: 50px; background: transparent; border: none; color: #fff; text-align: right; font-weight: bold; font-size: 11px; }
+    .inp-box input { width: 48px; background: transparent; border: none; color: #fff; text-align: right; font-weight: bold; font-size: 11px; }
 
-    /* RESIZER HANDLES */
+    .quant-desk-box { background: #05070b; border: 1px solid var(--border); padding: 7px; display: flex; flex-direction: column; gap: 6px; }
+    .pillar-row { display: flex; justify-content: space-between; font-size: 11px; border-bottom: 1px solid #111827; padding-bottom: 3px; }
+    .pillar-row span:first-child { color: var(--muted); }
+    .btn-bot {
+      width: 100%; padding: 7px; font-weight: 900; cursor: pointer; border: 1px solid var(--cyan);
+      background: rgba(0, 229, 255, 0.12); color: var(--cyan); letter-spacing: 0.5px;
+    }
+    .btn-bot.running { background: var(--amber); color: #000; border-color: var(--amber); }
+
     .resizer-v { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; }
     .resizer-v:hover, .resizer-v.dragging { background: var(--amber); }
     .resizer-h { height: 4px; background: var(--border); cursor: row-resize; flex-shrink: 0; }
@@ -141,7 +151,7 @@
       background: var(--bg-2); border-bottom: 1px solid var(--border); padding: 4px 8px;
       font-size: 10px; font-weight: bold; color: var(--amber); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
     }
-    .of-box { background: #05070b; border: 1px solid var(--border); padding: 6px; flex: 1; display: flex; flex-direction: column; gap: 5px; min-height: 110px; }
+    .of-box { background: #05070b; border: 1px solid var(--border); padding: 6px; flex: 1; display: flex; flex-direction: column; gap: 4px; min-height: 90px; }
     .of-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; text-align: center; border-bottom: 1px solid var(--border); padding-bottom: 4px; font-size: 11px; }
     .of-metrics small { font-size: 9px; color: var(--muted); display: block; }
     .tape { flex: 1; overflow-y: auto; font-size: 11px; }
@@ -160,10 +170,10 @@
 </head>
 <body>
 
-  <!-- TOP COMMAND BAR -->
+  <!-- TOP BAR -->
   <div class="topbar">
     <div class="cmd-box">
-      <button class="btn-ui" onclick="togglePane('pane-left', 140)" title="Ẩn/Hiện Watchlist">◀ WL</button>
+      <button class="btn-ui" onclick="togglePane('pane-left', 130)">◀ WL</button>
       <span class="brand">NEXUS</span>
       <input type="text" id="symInput" class="sym-input" value="XAUUSD" onkeydown="if(event.key==='Enter') changeSymbol(this.value)">
       <button class="btn-ui" onclick="changeSymbol(document.getElementById('symInput').value)">GO</button>
@@ -176,6 +186,7 @@
       </div>
       <div style="display:flex; gap:3px; margin-left:8px;">
         <button class="btn-ui mode-btn active" id="btnModeChart" onclick="switchView('chart')">CHART</button>
+        <button class="btn-ui mode-btn" id="btnMode3D" onclick="switchView('3d')">3D SURFACE & AI</button>
         <button class="btn-ui mode-btn" id="btnModeQuant" onclick="switchView('quant')">QUANT BT</button>
       </div>
     </div>
@@ -185,8 +196,8 @@
       <div><span>EQ:</span> <b id="t-eq" style="color:var(--cyan);">--</b></div>
       <div><span>PnL:</span> <b id="t-pnl">--</b></div>
       <div><span>WS:</span> <b id="t-mt5" style="color:var(--red);">WAIT</b></div>
-      <button class="btn-ui" onclick="togglePane('pane-bottom', 155, true)">▼ POS</button>
-      <button class="btn-ui" onclick="togglePane('pane-right', 255)">EXEC ▶</button>
+      <button class="btn-ui" onclick="togglePane('pane-bottom', 145, true)">▼ POS</button>
+      <button class="btn-ui" onclick="togglePane('pane-right', 275)">DESK ▶</button>
     </div>
   </div>
 
@@ -197,16 +208,16 @@
       <span style="cursor:pointer;" onclick="toggleColorPopover()">[X]</span>
     </div>
     <div class="swatch-grid">
-      <div class="swatch" style="background:#ff9900;" onclick="pickDrawColor('#ff9900')" title="Amber"></div>
-      <div class="swatch" style="background:#00e5ff;" onclick="pickDrawColor('#00e5ff')" title="Cyan"></div>
-      <div class="swatch" style="background:#00d26a;" onclick="pickDrawColor('#00d26a')" title="Green"></div>
-      <div class="swatch" style="background:#ff3b30;" onclick="pickDrawColor('#ff3b30')" title="Red"></div>
-      <div class="swatch" style="background:#ffffff;" onclick="pickDrawColor('#ffffff')" title="White"></div>
-      <div class="swatch" style="background:#ffeb3b;" onclick="pickDrawColor('#ffeb3b')" title="Yellow"></div>
-      <div class="swatch" style="background:#e040fb;" onclick="pickDrawColor('#e040fb')" title="Magenta"></div>
-      <div class="swatch" style="background:#2979ff;" onclick="pickDrawColor('#2979ff')" title="Blue"></div>
-      <div class="swatch" style="background:#ff6d00;" onclick="pickDrawColor('#ff6d00')" title="Deep Orange"></div>
-      <div class="swatch" style="background:#94a3b8;" onclick="pickDrawColor('#94a3b8')" title="Slate"></div>
+      <div class="swatch" style="background:#ff9900;" onclick="pickDrawColor('#ff9900')"></div>
+      <div class="swatch" style="background:#00e5ff;" onclick="pickDrawColor('#00e5ff')"></div>
+      <div class="swatch" style="background:#00d26a;" onclick="pickDrawColor('#00d26a')"></div>
+      <div class="swatch" style="background:#ff3b30;" onclick="pickDrawColor('#ff3b30')"></div>
+      <div class="swatch" style="background:#ffffff;" onclick="pickDrawColor('#ffffff')"></div>
+      <div class="swatch" style="background:#ffeb3b;" onclick="pickDrawColor('#ffeb3b')"></div>
+      <div class="swatch" style="background:#e040fb;" onclick="pickDrawColor('#e040fb')"></div>
+      <div class="swatch" style="background:#2979ff;" onclick="pickDrawColor('#2979ff')"></div>
+      <div class="swatch" style="background:#ff6d00;" onclick="pickDrawColor('#ff6d00')"></div>
+      <div class="swatch" style="background:#94a3b8;" onclick="pickDrawColor('#94a3b8')"></div>
     </div>
     <div class="custom-color-row">
       <span>Custom HEX:</span>
@@ -214,9 +225,8 @@
     </div>
   </div>
 
-  <!-- RESIZABLE WORKSPACE -->
+  <!-- WORKSPACE -->
   <div class="workspace">
-    <!-- LEFT: MARKET WATCH -->
     <div id="pane-left">
       <div class="p-head"><span>WATCHLIST</span><span style="cursor:pointer;" onclick="loadWatchlist()">[↻]</span></div>
       <div class="wl-list" id="wl-list"></div>
@@ -224,41 +234,36 @@
 
     <div class="resizer-v" id="drag-left"></div>
 
-    <!-- CENTER: CHART + FULL TRADINGVIEW DRAWING TOOLBOX + BLOTTER -->
+    <!-- CENTER -->
     <div id="pane-center">
       <div id="chart-section">
-        <!-- FULL TRADINGVIEW LEFT DRAWING TOOLBAR -->
-        <div class="tv-toolbar" id="tv-toolbar">
-          <button class="tool-btn active" id="tool-cursor" onclick="setDrawTool('cursor')" title="Crosshair / Di chuyển (Esc)">✛</button>
+        <div class="tv-toolbar">
+          <button class="tool-btn active" id="tool-cursor" onclick="setDrawTool('cursor')" title="Crosshair (Esc)">✛</button>
           <div class="tool-sep"></div>
-          <!-- Lines -->
           <button class="tool-btn" id="tool-trend" onclick="setDrawTool('trend')" title="Trend Line (Alt+T)">╱</button>
-          <button class="tool-btn" id="tool-ray" onclick="setDrawTool('ray')" title="Ray / Tia xu hướng">↗</button>
-          <button class="tool-btn" id="tool-ext" onclick="setDrawTool('ext')" title="Extended Line / Đường kéo dài 2 đầu">⤢</button>
+          <button class="tool-btn" id="tool-ray" onclick="setDrawTool('ray')" title="Ray">↗</button>
+          <button class="tool-btn" id="tool-ext" onclick="setDrawTool('ext')" title="Extended Line">⤢</button>
           <button class="tool-btn" id="tool-hline" onclick="setDrawTool('hline')" title="Horizontal Line (Alt+H)">─</button>
-          <button class="tool-btn" id="tool-vline" onclick="setDrawTool('vline')" title="Vertical Line / Đường dọc thời gian (Alt+V)">│</button>
-          <button class="tool-btn" id="tool-channel" onclick="setDrawTool('channel')" title="Parallel Channel / Kênh giá song song (Click 3 điểm)">⫽</button>
+          <button class="tool-btn" id="tool-vline" onclick="setDrawTool('vline')" title="Vertical Line (Alt+V)">│</button>
+          <button class="tool-btn" id="tool-channel" onclick="setDrawTool('channel')" title="Parallel Channel">⫽</button>
           <div class="tool-sep"></div>
-          <!-- Shapes & Fib -->
-          <button class="tool-btn" id="tool-rect" onclick="setDrawTool('rect')" title="Rectangle / Vùng Order Block - FVG">▭</button>
-          <button class="tool-btn" id="tool-fib" onclick="setDrawTool('fib')" title="Fib Retracement (Click Đỉnh -> Đáy)">≡</button>
+          <button class="tool-btn" id="tool-rect" onclick="setDrawTool('rect')" title="Order Block / FVG">▭</button>
+          <button class="tool-btn" id="tool-fib" onclick="setDrawTool('fib')" title="Fib Retracement">≡</button>
           <div class="tool-sep"></div>
-          <!-- Position & Measure -->
-          <button class="tool-btn" id="tool-long" onclick="setDrawTool('long')" title="Long Position R:R (Entry -> SL -> TP)" style="color:var(--green);">▲</button>
-          <button class="tool-btn" id="tool-short" onclick="setDrawTool('short')" title="Short Position R:R (Entry -> SL -> TP)" style="color:var(--red);">▼</button>
-          <button class="tool-btn" id="tool-measure" onclick="setDrawTool('measure')" title="Thước đo Giá & Số nến (Measure)">📏</button>
-          <button class="tool-btn" id="tool-text" onclick="setDrawTool('text')" title="Ghi chú văn bản trên Chart (Text)">T</button>
+          <button class="tool-btn" id="tool-long" onclick="setDrawTool('long')" title="Long Position R:R" style="color:var(--green);">▲</button>
+          <button class="tool-btn" id="tool-short" onclick="setDrawTool('short')" title="Short Position R:R" style="color:var(--red);">▼</button>
+          <button class="tool-btn" id="tool-measure" onclick="setDrawTool('measure')" title="Measure">📏</button>
+          <button class="tool-btn" id="tool-text" onclick="setDrawTool('text')" title="Text Note">T</button>
           <div class="tool-sep"></div>
-          <!-- Color Picker Trigger -->
-          <div class="color-trigger" id="active-color-btn" style="background:#ff9900;" onclick="toggleColorPopover()" title="Đổi màu công cụ vẽ"></div>
+          <div class="color-trigger" id="active-color-btn" style="background:#ff9900;" onclick="toggleColorPopover()" title="Đổi màu"></div>
           <div class="tool-sep"></div>
-          <!-- Magnet & Manage -->
-          <button class="tool-btn" id="btn-magnet" onclick="toggleMagnet()" title="Chế độ Nam châm hút đỉnh/đáy nến (Magnet)">🧲</button>
-          <button class="tool-btn" onclick="undoDrawing()" title="Hoàn tác nét vẽ cuối (Ctrl+Z)">↶</button>
-          <button class="tool-btn" style="color:var(--red);" onclick="clearDrawings()" title="Xóa toàn bộ công cụ vẽ">🗑</button>
+          <button class="tool-btn" id="btn-magnet" onclick="toggleMagnet()" title="Magnet OHLC">🧲</button>
+          <button class="tool-btn" onclick="undoDrawing()" title="Undo (Ctrl+Z)">↶</button>
+          <button class="tool-btn" style="color:var(--red);" onclick="clearDrawings()" title="Clear All">🗑</button>
         </div>
 
         <div id="chart-container">
+          <!-- VIEW 1: 2D TRADINGVIEW CHART -->
           <div id="chart-view">
             <div class="hud-bar">
               <span id="hud-ohlc" style="font-size:11px;">Loading...</span>
@@ -268,9 +273,25 @@
             <canvas id="draw-canvas"></canvas>
           </div>
 
+          <!-- VIEW 2: 3D TOPOGRAPHIC QUANT SURFACE + MULTI-AGENT AI WAR ROOM -->
+          <div id="surface3d-view">
+            <div id="three-canvas-wrap">
+              <div class="surface-hud">
+                <div style="color:var(--cyan); font-weight:bold;">3D MICROSTRUCTURE & LIQUIDITY TOPOGRAPHY</div>
+                <div id="surf-meta" style="color:var(--muted); margin-top:2px;">Kéo chuột để xoay 360° | Cuộn để Zoom</div>
+                <button class="hud-btn" style="margin-top:5px;" onclick="load3DSurface()">[↻ REFRESH MESH]</button>
+              </div>
+            </div>
+            <div class="war-room-panel">
+              <div class="p-head"><span>MULTI-AGENT AI WAR ROOM (LIVE DEBATE)</span><span>4 AGENTS</span></div>
+              <div class="agent-feed" id="agent-feed"></div>
+            </div>
+          </div>
+
+          <!-- VIEW 3: QUANT BACKTESTER -->
           <div id="quant-view">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px;">
-              <strong style="color:var(--amber);">QUANT STRATEGY BACKTESTER (EMA CROSSOVER)</strong>
+              <strong style="color:var(--amber);">HYBRID QUANT BACKTESTER (EMA MOMENTUM + Z-SCORE MEAN REVERSION)</strong>
               <div style="display:flex; gap:5px; align-items:center;">
                 <input type="number" id="bt-fast" value="9" style="width:48px; background:#000; border:1px solid var(--border); color:#fff; padding:3px;">
                 <input type="number" id="bt-slow" value="21" style="width:48px; background:#000; border:1px solid var(--border); color:#fff; padding:3px;">
@@ -297,7 +318,7 @@
           <div class="p-head"><span>ACTIVE POSITIONS</span><span id="pos-cnt">0 OPEN</span></div>
           <div style="overflow-y:auto; flex:1;">
             <table>
-              <thead><tr><th>ID</th><th>SYM</th><th>SIDE</th><th>LOT</th><th>OPEN</th><th>SL/TP</th><th>PnL</th><th>ACT</th></tr></thead>
+              <thead><tr><th>ID</th><th>SYM</th><th>SRC</th><th>SIDE</th><th>LOT</th><th>OPEN</th><th>PnL</th><th>ACT</th></tr></thead>
               <tbody id="pos-tbody"></tbody>
             </table>
           </div>
@@ -311,9 +332,9 @@
 
     <div class="resizer-v" id="drag-right"></div>
 
-    <!-- RIGHT: COMPACT EXECUTION & ORDERFLOW -->
+    <!-- RIGHT: 4-PILLAR QUANT DESK & EXECUTION -->
     <div id="pane-right">
-      <div class="p-head"><span>1-CLICK EXECUTION</span><span>SHIFT+B / S</span></div>
+      <div class="p-head"><span>MANUAL EXECUTION</span><span>SHIFT+B / S</span></div>
       <div class="right-scroll">
         <div class="exec-compact">
           <button class="btn-trade sell" onclick="sendOrder('SELL')">
@@ -331,6 +352,15 @@
           <div class="inp-box"><span>FIX LOT</span><input type="number" id="in-lot" value="0.00" step="0.01"></div>
           <div class="inp-box"><span>SL PTS</span><input type="number" id="in-sl" value="300"></div>
           <div class="inp-box"><span>TP PTS</span><input type="number" id="in-tp" value="600"></div>
+        </div>
+
+        <div class="p-head" style="margin-top:2px;"><span>4-PILLAR QUANT DESK</span><span>AI BOT</span></div>
+        <div class="quant-desk-box">
+          <div class="pillar-row"><span>1. RESEARCH:</span><b id="qd-alpha" style="color:var(--cyan);">HOLD (0%)</b></div>
+          <div class="pillar-row"><span>2. RISK GATE:</span><b id="qd-risk" style="color:var(--green);">MAX DD 3.0%</b></div>
+          <div class="pillar-row"><span>3. TRADER:</span><b id="qd-trader" style="color:var(--amber);">STANDBY</b></div>
+          <div class="pillar-row" style="border:none;"><span>4. QUANT DEV:</span><b style="color:var(--green);">WS 20Hz OK</b></div>
+          <button class="btn-bot" id="btn-toggle-bot" onclick="toggleQuantBot()">▶ START AI QUANT BOT</button>
         </div>
 
         <div class="p-head" style="margin-top:2px;"><span>ORDERFLOW & TAPE</span><span>LIVE</span></div>
@@ -352,8 +382,113 @@
     let ws = null;
     let chart, candleSeries, volumeSeries;
     let candlesMap = new Map();
+    let botRunning = false;
 
-    // --- FULL TRADINGVIEW DRAWING ENGINE ---
+    // --- THREE.JS 3D TOPOGRAPHIC SURFACE ENGINE ---
+    let scene3D, camera3D, renderer3D, mesh3D, wire3D;
+    let isDragging3D = false, prevMouse3D = { x: 0, y: 0 };
+    let rotX = 0.65, rotY = -0.6, camDist = 26;
+
+    function init3DScene() {
+      const wrap = document.getElementById("three-canvas-wrap");
+      if (renderer3D) return;
+      scene3D = new THREE.Scene();
+      scene3D.background = new THREE.Color(0x05070b);
+
+      camera3D = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 0.1, 1000);
+      renderer3D = new THREE.WebGLRenderer({ antialias: true });
+      renderer3D.setSize(wrap.clientWidth, wrap.clientHeight);
+      wrap.appendChild(renderer3D.domElement);
+
+      const gridHelper = new THREE.GridHelper(24, 24, 0x1e293b, 0x0f1622);
+      gridHelper.position.y = -2.2;
+      scene3D.add(gridHelper);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+      scene3D.add(ambient);
+      const dirLight = new THREE.DirectionalLight(0x00e5ff, 0.9);
+      dirLight.position.set(10, 20, 10);
+      scene3D.add(dirLight);
+
+      wrap.addEventListener("mousedown", e => { isDragging3D = true; prevMouse3D = { x: e.clientX, y: e.clientY }; });
+      window.addEventListener("mouseup", () => { isDragging3D = false; });
+      wrap.addEventListener("mousemove", e => {
+        if (!isDragging3D) return;
+        rotY += (e.clientX - prevMouse3D.x) * 0.008;
+        rotX = Math.max(0.15, Math.min(1.45, rotX + (e.clientY - prevMouse3D.y) * 0.008));
+        prevMouse3D = { x: e.clientX, y: e.clientY };
+      });
+      wrap.addEventListener("wheel", e => {
+        camDist = Math.max(12, Math.min(45, camDist + e.deltaY * 0.015));
+      });
+
+      function animate3D() {
+        requestAnimationFrame(animate3D);
+        if (document.getElementById("surface3d-view").style.display === "grid") {
+          if (!isDragging3D) rotY += 0.002;
+          camera3D.position.x = camDist * Math.sin(rotY) * Math.cos(rotX);
+          camera3D.position.y = camDist * Math.sin(rotX);
+          camera3D.position.z = camDist * Math.cos(rotY) * Math.cos(rotX);
+          camera3D.lookAt(0, 0, 0);
+          renderer3D.render(scene3D, camera3D);
+        }
+      }
+      animate3D();
+    }
+
+    async function load3DSurface() {
+      init3DScene();
+      const wrap = document.getElementById("three-canvas-wrap");
+      if (wrap.clientWidth > 0 && wrap.clientHeight > 0) {
+        camera3D.aspect = wrap.clientWidth / wrap.clientHeight;
+        camera3D.updateProjectionMatrix();
+        renderer3D.setSize(wrap.clientWidth, wrap.clientHeight);
+      }
+
+      try {
+        const res = await fetch(`/api/quant/surface/${currentSym}/${currentTF}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById("surf-meta").innerText = `${data.symbol} [${data.tf}] | Z-Score: ${data.latest_z} | Volatility Index: ${data.volatility_idx}%`;
+
+        if (mesh3D) { scene3D.remove(mesh3D); scene3D.remove(wire3D); }
+
+        const size = 24;
+        const geom = new THREE.PlaneGeometry(18, 18, size - 1, size - 1);
+        geom.rotateX(-Math.PI / 2);
+
+        const pos = geom.attributes.position;
+        const colors = [];
+        for (let i = 0; i < pos.count; i++) {
+          const row = Math.floor(i / size);
+          const col = i % size;
+          const h = data.grid[row][col];
+          pos.setY(i, h);
+
+          // Tô màu theo độ cao (Xanh Cyan -> Vàng Amber -> Đỏ Đỉnh thanh khoản)
+          const c = new THREE.Color();
+          if (h > 1.5) c.setHex(0xff3b30);
+          else if (h > 0.3) c.setHex(0xff9900);
+          else if (h > -0.5) c.setHex(0x00e5ff);
+          else c.setHex(0x00d26a);
+          colors.push(c.r, c.g, c.b);
+        }
+        geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geom.computeVertexNormals();
+
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.2, transparent: true, opacity: 0.85
+        });
+        mesh3D = new THREE.Mesh(geom, mat);
+        scene3D.add(mesh3D);
+
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.14 });
+        wire3D = new THREE.Mesh(geom, wireMat);
+        scene3D.add(wire3D);
+      } catch (e) {}
+    }
+
+    // --- DRAWING STATE ---
     let activeTool = "cursor";
     let activeColor = "#ff9900";
     let magnetMode = false;
@@ -368,10 +503,30 @@
       box.innerHTML = `<div>[${t}] ${msg}</div>` + box.innerHTML;
     }
 
+    async function toggleQuantBot() {
+      botRunning = !botRunning;
+      const res = await fetch("/api/bot/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: botRunning,
+          symbol: currentSym,
+          tf: currentTF,
+          risk_pct: parseFloat(document.getElementById("in-risk").value) || 0.5,
+          max_dd_pct: 3.0,
+          sl_points: parseInt(document.getElementById("in-sl").value) || 300,
+          tp_points: parseInt(document.getElementById("in-tp").value) || 600
+        })
+      });
+      const data = await res.json();
+      const btn = document.getElementById("btn-toggle-bot");
+      btn.classList.toggle("running", botRunning);
+      btn.innerText = botRunning ? "⏹ STOP AI QUANT BOT" : "▶ START AI QUANT BOT";
+      log(data.msg);
+    }
+
     function hexToRgba(hex, alpha) {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
@@ -385,12 +540,9 @@
       document.getElementById("active-color-btn").style.background = hex;
       document.getElementById("customColorInput").value = hex;
       document.getElementById("color-popover").style.display = "none";
-      // Nếu đang dở nét vẽ thì đổi màu trực tiếp trên preview
       if (tempPoints.length > 0) renderDrawings();
-      log(`Drawing color set to ${hex.toUpperCase()}`);
     }
 
-    // --- RESIZER PANELS ---
     function setupResizer(resizerId, targetId, dimension, invert = false) {
       const resizer = document.getElementById(resizerId);
       const target = document.getElementById(targetId);
@@ -427,7 +579,6 @@
       el.style[prop] = cur > 10 ? "0px" : `${defaultSize}px`;
     }
 
-    // --- MAGNET SNAP HELPER ---
     function applyMagnet(time, rawPrice) {
       if (!magnetMode || !candlesMap.has(time)) return rawPrice;
       const c = candlesMap.get(time);
@@ -441,9 +592,7 @@
     }
 
     function saveDrawingsToStorage() {
-      try {
-        localStorage.setItem(`nexus_draw_${currentSym}`, JSON.stringify(drawings));
-      } catch (e) {}
+      try { localStorage.setItem(`nexus_draw_${currentSym}`, JSON.stringify(drawings)); } catch (e) {}
     }
 
     function loadDrawingsFromStorage() {
@@ -457,7 +606,6 @@
     function toggleMagnet() {
       magnetMode = !magnetMode;
       document.getElementById("btn-magnet").classList.toggle("magnet-on", magnetMode);
-      log(`Magnet Snap: ${magnetMode ? "ON (OHLC)" : "OFF"}`);
     }
 
     function setDrawTool(tool) {
@@ -466,28 +614,9 @@
       document.querySelectorAll(".tool-btn:not(#btn-magnet)").forEach(b => b.classList.remove("active"));
       const btn = document.getElementById(`tool-${tool}`);
       if (btn) btn.classList.add("active");
-
       const hint = document.getElementById("draw-hint");
-      const hints = {
-        hline: "[Click 1 điểm để đặt đường ngang]",
-        vline: "[Click 1 điểm để đặt đường dọc thời gian]",
-        text: "[Click vị trí bất kỳ để nhập ghi chú]",
-        trend: "[Click điểm 1 -> Điểm 2]",
-        ray: "[Click điểm gốc -> Điểm hướng]",
-        ext: "[Click điểm 1 -> Điểm 2]",
-        rect: "[Click góc 1 -> Góc đối diện]",
-        fib: "[Click Đỉnh/Đáy 1 -> Điểm 2]",
-        measure: "[Click điểm đầu -> Điểm cuối để đo]",
-        channel: "[Click 2 điểm đường cơ sở -> Click điểm 3 mở rộng kênh]",
-        long: "[Click 1: Entry -> Click 2: Stop Loss -> Click 3: Take Profit]",
-        short: "[Click 1: Entry -> Click 2: Stop Loss -> Click 3: Take Profit]"
-      };
-      if (tool === "cursor") {
-        hint.style.display = "none";
-      } else {
-        hint.style.display = "inline";
-        hint.innerText = hints[tool] || "";
-      }
+      hint.style.display = tool === "cursor" ? "none" : "inline";
+      hint.innerText = tool === "cursor" ? "" : `[TOOL: ${tool.toUpperCase()}]`;
       renderDrawings();
     }
 
@@ -498,25 +627,14 @@
       hLines = [];
       saveDrawingsToStorage();
       renderDrawings();
-      log(`Cleared drawings for ${currentSym}`);
     }
 
     function undoDrawing() {
-      if (tempPoints.length > 0) {
-        tempPoints = [];
-        renderDrawings();
-        return;
-      }
-      if (drawings.length > 0) {
-        drawings.pop();
-        saveDrawingsToStorage();
-        renderDrawings();
-      } else if (hLines.length > 0) {
-        candleSeries.removePriceLine(hLines.pop());
-      }
+      if (tempPoints.length > 0) { tempPoints = []; renderDrawings(); return; }
+      if (drawings.length > 0) { drawings.pop(); saveDrawingsToStorage(); renderDrawings(); }
+      else if (hLines.length > 0) { candleSeries.removePriceLine(hLines.pop()); }
     }
 
-    // --- CANVAS RENDERER FOR ALL TRADINGVIEW TOOLS ---
     function renderDrawings() {
       const canvas = document.getElementById("draw-canvas");
       const ctx = canvas.getContext("2d");
@@ -528,17 +646,14 @@
         if (mx !== null && my !== null) {
           ctx.save();
           ctx.strokeStyle = activeColor;
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(mx, my, 5, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.stroke();
           ctx.restore();
         }
       }
 
       const list = [...drawings];
       if (tempPoints.length > 0 && mousePos) {
-        list.push({ type: activeTool, color: activeColor, pts: [...tempPoints, mousePos], preview: true });
+        list.push({ type: activeTool, color: activeColor, pts: [...tempPoints, mousePos] });
       }
 
       list.forEach(item => {
@@ -546,199 +661,77 @@
         const coords = item.pts.map(p => ({
           x: chart.timeScale().timeToCoordinate(p.time),
           y: candleSeries.priceToCoordinate(p.price),
-          time: p.time,
           price: p.price
         }));
-
         if (coords.some(c => c.x === null || c.y === null)) return;
-        const p1 = coords[0];
-        const p2 = coords[1] || p1;
-        const p3 = coords[2] || p2;
+        const p1 = coords[0], p2 = coords[1] || p1, p3 = coords[2] || p2;
 
         ctx.save();
-
-        // 1. VERTICAL LINE
         if (item.type === "vline") {
-          ctx.strokeStyle = col;
-          ctx.setLineDash([4, 4]);
-          ctx.lineWidth = 1.3;
-          ctx.beginPath();
-          ctx.moveTo(p1.x, 0);
-          ctx.lineTo(p1.x, canvas.height);
-          ctx.stroke();
-        }
-
-        // 2. TEXT NOTE
-        else if (item.type === "text") {
+          ctx.strokeStyle = col; ctx.setLineDash([4, 4]);
+          ctx.beginPath(); ctx.moveTo(p1.x, 0); ctx.lineTo(p1.x, canvas.height); ctx.stroke();
+        } else if (item.type === "text") {
           ctx.font = "bold 12px Consolas";
-          const pad = 6;
-          const w = ctx.measureText(item.text).width + pad * 2;
-          ctx.fillStyle = "rgba(11, 15, 23, 0.92)";
-          ctx.strokeStyle = col;
-          ctx.fillRect(p1.x, p1.y - 18, w, 22);
-          ctx.strokeRect(p1.x, p1.y - 18, w, 22);
-          ctx.fillStyle = col;
-          ctx.fillText(item.text, p1.x + pad, p1.y - 3);
-        }
-
-        // 3. TREND / RAY / EXTENDED LINE
-        else if (item.type === "trend" || item.type === "ray" || item.type === "ext") {
-          ctx.strokeStyle = col;
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          if (item.type === "trend") {
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-          } else if (item.type === "ray" && p2.x !== p1.x) {
+          const w = ctx.measureText(item.text).width + 12;
+          ctx.fillStyle = "rgba(11, 15, 23, 0.92)"; ctx.strokeStyle = col;
+          ctx.fillRect(p1.x, p1.y - 18, w, 22); ctx.strokeRect(p1.x, p1.y - 18, w, 22);
+          ctx.fillStyle = col; ctx.fillText(item.text, p1.x + 6, p1.y - 3);
+        } else if (["trend", "ray", "ext"].includes(item.type)) {
+          ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.beginPath();
+          if (item.type === "trend") { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
+          else if (item.type === "ray" && p2.x !== p1.x) {
             const slope = (p2.y - p1.y) / (p2.x - p1.x);
             const endX = p2.x > p1.x ? canvas.width : 0;
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(endX, p1.y + slope * (endX - p1.x));
+            ctx.moveTo(p1.x, p1.y); ctx.lineTo(endX, p1.y + slope * (endX - p1.x));
           } else if (item.type === "ext" && p2.x !== p1.x) {
             const slope = (p2.y - p1.y) / (p2.x - p1.x);
-            ctx.moveTo(0, p1.y + slope * (0 - p1.x));
-            ctx.lineTo(canvas.width, p1.y + slope * (canvas.width - p1.x));
+            ctx.moveTo(0, p1.y + slope * (0 - p1.x)); ctx.lineTo(canvas.width, p1.y + slope * (canvas.width - p1.x));
           }
           ctx.stroke();
-          drawAnchor(ctx, p1.x, p1.y, col);
-          drawAnchor(ctx, p2.x, p2.y, col);
-        }
-
-        // 4. PARALLEL CHANNEL (3 POINTS)
-        else if (item.type === "channel") {
-          ctx.strokeStyle = col;
-          ctx.lineWidth = 1.4;
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.stroke();
-
-          const dy = p3.y - p2.y;
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y + dy);
-          ctx.lineTo(p2.x, p2.y + dy);
-          ctx.stroke();
-
+        } else if (item.type === "channel") {
+          ctx.strokeStyle = col; const dy = p3.y - p2.y;
+          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(p1.x, p1.y + dy); ctx.lineTo(p2.x, p2.y + dy); ctx.stroke();
           ctx.fillStyle = hexToRgba(col, 0.12);
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.lineTo(p2.x, p2.y + dy);
-          ctx.lineTo(p1.x, p1.y + dy);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y + dy / 2);
-          ctx.lineTo(p2.x, p2.y + dy / 2);
-          ctx.stroke();
-          drawAnchor(ctx, p1.x, p1.y, col);
-          drawAnchor(ctx, p2.x, p2.y, col);
-        }
-
-        // 5. RECTANGLE (ORDER BLOCK / FVG ZONE)
-        else if (item.type === "rect") {
-          const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
-          const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
-          ctx.fillStyle = hexToRgba(col, 0.15);
-          ctx.strokeStyle = col;
-          ctx.lineWidth = 1.3;
-          ctx.fillRect(x, y, w, h);
-          ctx.strokeRect(x, y, w, h);
-          drawAnchor(ctx, p1.x, p1.y, col);
-          drawAnchor(ctx, p2.x, p2.y, col);
-        }
-
-        // 6. FIBONACCI RETRACEMENT
-        else if (item.type === "fib") {
+          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p2.x, p2.y + dy); ctx.lineTo(p1.x, p1.y + dy); ctx.closePath(); ctx.fill();
+        } else if (item.type === "rect") {
+          const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y), w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
+          ctx.fillStyle = hexToRgba(col, 0.15); ctx.strokeStyle = col;
+          ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+        } else if (item.type === "fib") {
           const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
           const colors = ["#787b86", "#f44336", "#ff9800", "#4caf50", "#00bcd4", "#2196f3", "#787b86"];
-          const leftX = Math.min(p1.x, p2.x);
-          const rightX = Math.max(p1.x, p2.x, leftX + 130);
-
-          ctx.strokeStyle = "rgba(255,255,255,0.25)";
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-          ctx.setLineDash([]);
-
+          const leftX = Math.min(p1.x, p2.x), rightX = Math.max(p1.x, p2.x, leftX + 130);
           levels.forEach((lvl, idx) => {
             const y = p1.y + (p2.y - p1.y) * lvl;
             const priceVal = (p1.price + (p2.price - p1.price) * lvl).toFixed(2);
-            ctx.strokeStyle = colors[idx];
-            ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(leftX, y); ctx.lineTo(rightX, y); ctx.stroke();
-            ctx.fillStyle = colors[idx];
-            ctx.font = "10px Consolas";
-            ctx.fillText(`${lvl} (${priceVal})`, leftX + 4, y - 3);
+            ctx.strokeStyle = colors[idx]; ctx.beginPath(); ctx.moveTo(leftX, y); ctx.lineTo(rightX, y); ctx.stroke();
+            ctx.fillStyle = colors[idx]; ctx.font = "10px Consolas"; ctx.fillText(`${lvl} (${priceVal})`, leftX + 4, y - 3);
           });
-        }
-
-        // 7. MEASURE TOOL (PRICE & BARS)
-        else if (item.type === "measure") {
-          const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
-          const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
-          const diffPrice = (p2.price - p1.price).toFixed(2);
-          const diffPct = (((p2.price - p1.price) / p1.price) * 100).toFixed(2);
+        } else if (item.type === "measure") {
+          const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y), w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
+          const diffPrice = (p2.price - p1.price).toFixed(2), diffPct = (((p2.price - p1.price) / p1.price) * 100).toFixed(2);
           const isUp = p2.price >= p1.price;
-
           ctx.fillStyle = isUp ? "rgba(0, 210, 106, 0.16)" : "rgba(255, 59, 48, 0.16)";
           ctx.strokeStyle = isUp ? "#00d26a" : "#ff3b30";
-          ctx.fillRect(x, y, w, h);
-          ctx.strokeRect(x, y, w, h);
-
+          ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
           const label = `${diffPrice} (${diffPct}%)`;
-          ctx.font = "bold 11px Consolas";
-          const lw = ctx.measureText(label).width + 12;
-          ctx.fillStyle = isUp ? "#00d26a" : "#ff3b30";
-          ctx.fillRect(x + w / 2 - lw / 2, isUp ? y - 22 : y + h + 4, lw, 18);
-          ctx.fillStyle = "#000";
-          ctx.fillText(label, x + w / 2 - lw / 2 + 6, isUp ? y - 9 : y + h + 17);
-        }
-
-        // 8. LONG / SHORT RISK:REWARD POSITION TOOL
-        else if (item.type === "long" || item.type === "short") {
-          const entryY = p1.y;
-          const slY = p2.y;
-          const tpY = coords[2] ? coords[2].y : (p1.y - (p2.y - p1.y) * 2);
+          ctx.fillStyle = isUp ? "#00d26a" : "#ff3b30"; ctx.font = "bold 11px Consolas";
+          ctx.fillText(label, x + 4, isUp ? y - 5 : y + h + 13);
+        } else if (item.type === "long" || item.type === "short") {
+          const entryY = p1.y, slY = p2.y, tpY = coords[2] ? coords[2].y : (p1.y - (p2.y - p1.y) * 2);
           const boxWidth = Math.max(110, Math.abs((coords[2] ? coords[2].x : p2.x) - p1.x));
-
-          ctx.fillStyle = "rgba(255, 59, 48, 0.22)";
-          ctx.fillRect(p1.x, Math.min(entryY, slY), boxWidth, Math.abs(slY - entryY));
-
-          ctx.fillStyle = "rgba(0, 210, 106, 0.22)";
-          ctx.fillRect(p1.x, Math.min(entryY, tpY), boxWidth, Math.abs(tpY - entryY));
-
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 1.2;
-          ctx.beginPath(); ctx.moveTo(p1.x, entryY); ctx.lineTo(p1.x + boxWidth, entryY); ctx.stroke();
-
-          const risk = Math.abs(p1.price - p2.price);
-          const reward = coords[2] ? Math.abs(coords[2].price - p1.price) : risk * 2;
+          ctx.fillStyle = "rgba(255, 59, 48, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, slY), boxWidth, Math.abs(slY - entryY));
+          ctx.fillStyle = "rgba(0, 210, 106, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, tpY), boxWidth, Math.abs(tpY - entryY));
+          ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.moveTo(p1.x, entryY); ctx.lineTo(p1.x + boxWidth, entryY); ctx.stroke();
+          const risk = Math.abs(p1.price - p2.price), reward = coords[2] ? Math.abs(coords[2].price - p1.price) : risk * 2;
           const rr = risk > 0 ? (reward / risk).toFixed(2) : "0.00";
-
-          ctx.fillStyle = "#0b0f17";
-          ctx.fillRect(p1.x + 4, entryY - 16, 95, 15);
-          ctx.fillStyle = "#00e5ff";
-          ctx.font = "bold 10px Consolas";
-          ctx.fillText(`R:R = 1 : ${rr}`, p1.x + 8, entryY - 5);
+          ctx.fillStyle = "#00e5ff"; ctx.font = "bold 10px Consolas"; ctx.fillText(`R:R = 1 : ${rr}`, p1.x + 6, entryY - 5);
         }
-
         ctx.restore();
       });
     }
 
-    function drawAnchor(ctx, x, y, col) {
-      ctx.fillStyle = "#0b0f17";
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // --- INIT LIGHTWEIGHT CHARTS ---
     function initMainChart() {
       const container = document.getElementById("chart-view");
       const canvas = document.getElementById("draw-canvas");
@@ -785,47 +778,32 @@
         const price = applyMagnet(p.time, rawPrice);
 
         if (activeTool === "hline") {
-          const line = candleSeries.createPriceLine({
-            price: price, color: activeColor, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'LVL'
-          });
-          hLines.push(line);
+          hLines.push(candleSeries.createPriceLine({ price, color: activeColor, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'LVL' }));
           setDrawTool("cursor");
           return;
         }
-
         if (activeTool === "vline") {
           drawings.push({ type: "vline", color: activeColor, pts: [{ time: p.time, price }] });
-          saveDrawingsToStorage();
-          setDrawTool("cursor");
-          return;
+          saveDrawingsToStorage(); setDrawTool("cursor"); return;
         }
-
         if (activeTool === "text") {
-          const txt = prompt("Nhập nội dung ghi chú trên biểu đồ:");
-          if (txt && txt.trim()) {
-            drawings.push({ type: "text", color: activeColor, pts: [{ time: p.time, price }], text: txt.trim() });
-            saveDrawingsToStorage();
-          }
-          setDrawTool("cursor");
-          return;
+          const txt = prompt("Ghi chú trên chart:");
+          if (txt && txt.trim()) { drawings.push({ type: "text", color: activeColor, pts: [{ time: p.time, price }], text: txt.trim() }); saveDrawingsToStorage(); }
+          setDrawTool("cursor"); return;
         }
 
         tempPoints.push({ time: p.time, price });
-
-        const needsThreePoints = ["channel", "long", "short"].includes(activeTool);
-        if ((needsThreePoints && tempPoints.length === 3) || (!needsThreePoints && tempPoints.length === 2)) {
+        const needsThree = ["channel", "long", "short"].includes(activeTool);
+        if ((needsThree && tempPoints.length === 3) || (!needsThree && tempPoints.length === 2)) {
           drawings.push({ type: activeTool, color: activeColor, pts: [...tempPoints] });
-          tempPoints = [];
-          saveDrawingsToStorage();
-          setDrawTool("cursor");
+          tempPoints = []; saveDrawingsToStorage(); setDrawTool("cursor");
         }
       });
 
       new ResizeObserver(() => {
         if (container.clientWidth > 0 && container.clientHeight > 0) {
           chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-          canvas.width = container.clientWidth;
-          canvas.height = container.clientHeight;
+          canvas.width = container.clientWidth; canvas.height = container.clientHeight;
           renderDrawings();
         }
       }).observe(container);
@@ -851,7 +829,7 @@
           currentSym = data.symbols[0];
           document.getElementById("symInput").value = currentSym;
         }
-      } catch (e) { log("ERR Watchlist: " + e.message); }
+      } catch (e) {}
     }
 
     async function connectFeed() {
@@ -866,14 +844,16 @@
           document.getElementById("symInput").value = currentSym;
           candlesMap.clear();
           hist.candles.forEach(c => candlesMap.set(c.time, c));
-
           candleSeries.setData(hist.candles);
           volumeSeries.setData(hist.volumes);
           loadDrawingsFromStorage();
           resetChartScale();
-          log(`Loaded ${hist.candles.length} bars: ${currentSym} [${currentTF}]`);
         }
-      } catch (e) { log(`ERR History: ${e.message}`); }
+      } catch (e) {}
+
+      if (document.getElementById("surface3d-view").style.display === "grid") {
+        load3DSurface();
+      }
 
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       ws = new WebSocket(`${proto}//${location.host}/ws/stream/${currentSym}/${currentTF}`);
@@ -881,13 +861,8 @@
       ws.onmessage = (ev) => {
         const d = JSON.parse(ev.data);
         const mt5Badge = document.getElementById("t-mt5");
-        if (!d.mt5_connected) {
-          mt5Badge.innerText = "OFFLINE";
-          mt5Badge.style.color = "var(--red)";
-          return;
-        }
-        mt5Badge.innerText = "LIVE";
-        mt5Badge.style.color = "var(--green)";
+        if (!d.mt5_connected) { mt5Badge.innerText = "OFFLINE"; mt5Badge.style.color = "var(--red)"; return; }
+        mt5Badge.innerText = "LIVE"; mt5Badge.style.color = "var(--green)";
 
         document.getElementById("t-bal").innerText = `$${d.account.balance.toFixed(2)}`;
         document.getElementById("t-eq").innerText = `$${d.account.equity.toFixed(2)}`;
@@ -905,6 +880,26 @@
           renderDrawings();
         }
 
+        if (d.quant_desk) {
+          const a = d.quant_desk.alpha;
+          const alphaEl = document.getElementById("qd-alpha");
+          alphaEl.innerText = `${a.signal} (${a.confidence}%)`;
+          alphaEl.style.color = a.signal === "BUY" ? "var(--green)" : (a.signal === "SELL" ? "var(--red)" : "var(--cyan)");
+          document.getElementById("qd-trader").innerText = d.quant_desk.status;
+
+          if (d.quant_desk.agent_chat) {
+            document.getElementById("agent-feed").innerHTML = d.quant_desk.agent_chat.map(m => `
+              <div class="chat-bubble" style="border-left: 3px solid ${m.color};">
+                <div class="chat-meta">
+                  <span style="color:${m.color};">${m.agent}</span>
+                  <span style="color:var(--muted);">${m.time}</span>
+                </div>
+                <div>${m.msg}</div>
+              </div>
+            `).join("");
+          }
+        }
+
         if (d.orderflow) {
           document.getElementById("of-buy").innerText = d.orderflow.buy_vol;
           document.getElementById("of-sell").innerText = d.orderflow.sell_vol;
@@ -920,7 +915,7 @@
           row.className = "tape-line";
           row.innerHTML = `<span style="color:var(--muted)">${d.tape.time}</span><span style="color:${c};font-weight:bold;">${d.tape.price}</span><span>${d.tape.side}</span>`;
           tape.prepend(row);
-          if (tape.children.length > 40) tape.removeChild(tape.lastChild);
+          if (tape.children.length > 35) tape.removeChild(tape.lastChild);
         }
 
         document.getElementById("pos-cnt").innerText = `${d.positions.length} OPEN`;
@@ -928,10 +923,10 @@
           <tr>
             <td>#${p.ticket}</td>
             <td><b>${p.symbol}</b></td>
+            <td style="color:${p.source==='AI_BOT'?'var(--cyan)':'var(--muted)'};">${p.source}</td>
             <td style="color:${p.type==='BUY'?'var(--green)':'var(--red)'};font-weight:bold;">${p.type}</td>
             <td>${p.volume}</td>
             <td>${p.open}</td>
-            <td>${p.sl}/${p.tp}</td>
             <td style="color:${p.profit>=0?'var(--green)':'var(--red)'};font-weight:bold;">$${p.profit.toFixed(2)}</td>
             <td>
               <button class="btn-ui" onclick="moveBE(${p.ticket})">BE</button>
@@ -959,13 +954,18 @@
 
     function switchView(mode) {
       document.getElementById("chart-view").style.display = mode === "chart" ? "block" : "none";
+      document.getElementById("surface3d-view").style.display = mode === "3d" ? "grid" : "none";
       document.getElementById("quant-view").style.display = mode === "quant" ? "flex" : "none";
+
       document.getElementById("btnModeChart").classList.toggle("active", mode === "chart");
+      document.getElementById("btnMode3D").classList.toggle("active", mode === "3d");
       document.getElementById("btnModeQuant").classList.toggle("active", mode === "quant");
+
+      if (mode === "3d") load3DSurface();
     }
 
     async function executeBacktest() {
-      log(`Running Quant Backtest: ${currentSym} [${currentTF}]...`);
+      log(`Running Hybrid Quant Backtest: ${currentSym} [${currentTF}]...`);
       const res = await fetch("/api/quant/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -998,7 +998,7 @@
         lineColor: '#00e5ff', topColor: 'rgba(0, 229, 255, 0.3)', bottomColor: 'rgba(0, 229, 255, 0.0)'
       });
       btSeries.setData(data.equity_curve);
-      log(`BT Done: Net $${data.net_profit} | WR ${data.win_rate}%`);
+      log(`BT Done: Net $${data.net_profit} | WR ${data.win_rate}% | Sharpe ${data.sharpe}`);
     }
 
     async function sendOrder(type) {
@@ -1010,22 +1010,18 @@
         sl_points: parseInt(document.getElementById("in-sl").value) || 0,
         tp_points: parseInt(document.getElementById("in-tp").value) || 0
       };
-      log(`Sending ${type} ${currentSym}...`);
       const res = await fetch("/api/order", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       const data = await res.json();
-      log(data.status === "OK" ? `FILLED #${data.ticket} (${data.vol} lot @ ${data.price})` : `REJECTED: ${data.msg}`);
+      log(data.status === "OK" ? `MANUAL FILLED #${data.ticket} (${data.vol} lot @ ${data.price})` : `REJECTED: ${data.msg}`);
     }
 
     async function moveBE(ticket) { await fetch(`/api/breakeven/${ticket}`, { method: "POST" }); log(`BE #${ticket}`); }
     async function closePos(ticket) { await fetch(`/api/close/${ticket}`, { method: "POST" }); log(`Closed #${ticket}`); }
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        setDrawTool("cursor");
-        document.getElementById("color-popover").style.display = "none";
-      }
+      if (e.key === "Escape") { setDrawTool("cursor"); document.getElementById("color-popover").style.display = "none"; }
       if (e.ctrlKey && e.key.toLowerCase() === "z") undoDrawing();
       if (e.altKey && e.key.toLowerCase() === "t") { e.preventDefault(); setDrawTool("trend"); }
       if (e.altKey && e.key.toLowerCase() === "h") { e.preventDefault(); setDrawTool("hline"); }

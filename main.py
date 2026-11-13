@@ -1,14 +1,18 @@
-import asyncio
+﻿import asyncio
 import json
+import numpy as np
 from datetime import datetime
 import MetaTrader5 as mt5
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from quant_modules.engine import run_vector_backtest
 
-app = FastAPI(title="NEXUS INSTITUTIONAL // MT5 QUANT PLATFORM")
+from quant_modules.research import run_vector_backtest
+from quant_modules.risk import QuantRiskManager
+from quant_modules.trader import AutonomousQuantTrader
+
+app = FastAPI(title="NEXUS // 3D QUANT SURFACE & 4-PILLAR AI WAR ROOM")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,6 +29,9 @@ TIMEFRAME_MAP = {
     "H4": mt5.TIMEFRAME_H4,
     "D1": mt5.TIMEFRAME_D1,
 }
+
+risk_manager = QuantRiskManager()
+quant_bot = AutonomousQuantTrader(risk_manager)
 
 def ensure_mt5() -> bool:
     if mt5.terminal_info() is not None:
@@ -61,23 +68,14 @@ class BacktestRequest(BaseModel):
     fast_ema: int = 9
     slow_ema: int = 21
 
-def calculate_lot_by_risk(symbol: str, risk_percent: float, sl_points: int) -> float:
-    acc = mt5.account_info()
-    sym = mt5.symbol_info(symbol)
-    if not acc or not sym or sl_points <= 0:
-        return sym.volume_min if sym else 0.01
-
-    risk_money = acc.equity * (risk_percent / 100.0)
-    tick_value = sym.trade_tick_value
-    tick_size = sym.trade_tick_size
-    if tick_value <= 0 or tick_size <= 0:
-        return sym.volume_min
-
-    point_value_per_lot = tick_value * (sym.point / tick_size)
-    raw_lot = risk_money / (sl_points * point_value_per_lot)
-    step = sym.volume_step
-    lot = round(raw_lot / step) * step
-    return round(max(sym.volume_min, min(sym.volume_max, lot)), 2)
+class BotConfigRequest(BaseModel):
+    enabled: bool
+    symbol: str
+    tf: str
+    risk_pct: float = 0.5
+    max_dd_pct: float = 3.0
+    sl_points: int = 300
+    tp_points: int = 600
 
 @app.get("/")
 def serve_ui():
@@ -94,26 +92,92 @@ def get_watchlist():
 @app.get("/api/history/{symbol}/{tf}")
 def get_historical_candles(symbol: str, tf: str, count: int = 400):
     if not ensure_mt5():
-        raise HTTPException(status_code=503, detail="MT5 chưa mở hoặc chưa đăng nhập")
+        raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(symbol)
     mt5_tf = TIMEFRAME_MAP.get(tf.upper(), mt5.TIMEFRAME_M5)
     rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, count)
     if rates is None or len(rates) == 0:
         raise HTTPException(status_code=404, detail=f"Không có dữ liệu nến cho {real_sym}")
 
-    candles = []
-    volumes = []
+    candles, volumes = [], []
     for r in rates:
         t = int(r["time"])
         o, h, l, c = float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])
-        v = float(r["tick_volume"])
         candles.append({"time": t, "open": o, "high": h, "low": l, "close": c})
         volumes.append({
             "time": t,
-            "value": v,
+            "value": float(r["tick_volume"]),
             "color": "rgba(0, 210, 106, 0.4)" if c >= o else "rgba(255, 59, 48, 0.4)"
         })
     return {"symbol": real_sym, "candles": candles, "volumes": volumes}
+
+@app.get("/api/quant/surface/{symbol}/{tf}")
+def get_3d_quant_surface(symbol: str, tf: str):
+    """
+    Tạo ma trận địa hình định lượng 3D (24x24):
+    Trục X: Chuỗi thời gian (24 nến gần nhất)
+    Trục Z: Các dải độ lệch chuẩn thanh khoản / biến động
+    Trục Y (Độ cao địa hình): Mật độ Volume * Biên độ giá chuẩn hóa
+    """
+    if not ensure_mt5():
+        raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
+    real_sym = resolve_symbol(symbol)
+    mt5_tf = TIMEFRAME_MAP.get(tf.upper(), mt5.TIMEFRAME_M5)
+    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 24)
+    if rates is None or len(rates) < 24:
+        raise HTTPException(status_code=404, detail="Không đủ dữ liệu dựng địa hình 3D")
+
+    closes = np.array([float(r["close"]) for r in rates])
+    vols = np.array([float(r["tick_volume"]) for r in rates])
+    ranges = np.array([float(r["high"] - r["low"]) for r in rates])
+
+    norm_vols = vols / (np.max(vols) if np.max(vols) > 0 else 1.0)
+    norm_ranges = ranges / (np.max(ranges) if np.max(ranges) > 0 else 1.0)
+    z_scores = (closes - np.mean(closes)) / (np.std(closes) if np.std(closes) > 0 else 1.0)
+
+    grid = []
+    for i in range(24):
+        row = []
+        for j in range(24):
+            dist_from_center = abs(j - 12) / 12.0
+            liquidity_pocket = np.exp(-2.5 * (dist_from_center ** 2))
+            wave = np.sin(i * 0.35 + z_scores[i]) * 0.6
+            height = (norm_vols[i] * 2.5 + norm_ranges[i] * 1.8) * liquidity_pocket + wave
+            row.append(round(float(height), 3))
+        grid.append(row)
+
+    return {
+        "symbol": real_sym,
+        "tf": tf,
+        "grid": grid,
+        "latest_z": round(float(z_scores[-1]), 2),
+        "volatility_idx": round(float(np.mean(norm_ranges) * 100), 1)
+    }
+
+@app.post("/api/bot/config")
+def configure_quant_bot(cfg: BotConfigRequest):
+    real_sym = resolve_symbol(cfg.symbol)
+    quant_bot.enabled = cfg.enabled
+    quant_bot.symbol = real_sym
+    quant_bot.timeframe = TIMEFRAME_MAP.get(cfg.tf.upper(), mt5.TIMEFRAME_M5)
+    quant_bot.sl_points = cfg.sl_points
+    quant_bot.tp_points = cfg.tp_points
+    risk_manager.risk_per_trade_pct = cfg.risk_pct
+    risk_manager.max_daily_loss_pct = cfg.max_dd_pct
+
+    if cfg.enabled:
+        quant_bot.push_chat("QUANT DEV", "#e040fb", f"Khởi động cụm 4 AI Agent trên {real_sym} [{cfg.tf}]. Luồng WebSocket 20Hz đã khóa mục tiêu.")
+        quant_bot.push_chat("QUANT RESEARCH", "#00e5ff", f"Đang quét bề mặt biến động 3D và Z-Score Orderflow cho {real_sym}...")
+        quant_bot.push_chat("QUANT RISK", "#ff9900", f"Thiết lập lá chắn rủi ro: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
+    else:
+        quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã ngắt chế độ tự động. Chuyển sang giám sát thủ công.")
+
+    return {
+        "status": "OK",
+        "bot_enabled": quant_bot.enabled,
+        "symbol": real_sym,
+        "msg": f"AI Bot {'ACTIVATED' if cfg.enabled else 'STOPPED'} on {real_sym} [{cfg.tf}]"
+    }
 
 @app.post("/api/quant/backtest")
 def api_backtest(req: BacktestRequest):
@@ -131,14 +195,15 @@ def api_backtest(req: BacktestRequest):
 async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
     await websocket.accept()
     last_tick_msc = 0
-    cvd = 0.0
-    buy_vol_total = 0.0
-    sell_vol_total = 0.0
+    cvd, buy_vol_total, sell_vol_total = 0.0, 0.0, 0.0
+
+    if not quant_bot.agent_chat:
+        quant_bot.push_chat("QUANT DEV", "#e040fb", "Hệ thống NEXUS 3D War Room sẵn sàng. Chờ tín hiệu từ 4 bộ phận...")
 
     try:
         while True:
             if not ensure_mt5():
-                await websocket.send_text(json.dumps({"mt5_connected": False, "error": str(mt5.last_error())}))
+                await websocket.send_text(json.dumps({"mt5_connected": False}))
                 await asyncio.sleep(1.0)
                 continue
 
@@ -149,8 +214,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
             rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 1)
             positions = mt5.positions_get()
 
-            latest_candle = None
-            latest_vol = None
+            latest_candle, latest_vol = None, None
             if rates is not None and len(rates) > 0:
                 r = rates[0]
                 t = int(r["time"])
@@ -183,6 +247,11 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                     "side": side
                 }
 
+            if not quant_bot.enabled:
+                quant_bot.symbol = real_sym
+                quant_bot.timeframe = mt5_tf
+            quant_bot.step(cvd=cvd)
+
             pos_list = []
             if positions:
                 for p in positions:
@@ -194,7 +263,8 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                         "open": p.price_open,
                         "sl": p.sl,
                         "tp": p.tp,
-                        "profit": p.profit
+                        "profit": p.profit,
+                        "source": "AI_BOT" if p.magic == 202688 else "MANUAL"
                     })
 
             payload = {
@@ -202,11 +272,9 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                 "symbol": real_sym,
                 "account": {
                     "login": acc.login if acc else 0,
-                    "server": acc.server if acc else "",
                     "balance": acc.balance if acc else 0,
                     "equity": acc.equity if acc else 0,
-                    "profit": acc.profit if acc else 0,
-                    "margin_free": acc.margin_free if acc else 0
+                    "profit": acc.profit if acc else 0
                 },
                 "tick": {"bid": tick.bid, "ask": tick.ask} if tick else {"bid": 0, "ask": 0},
                 "candle": latest_candle,
@@ -216,6 +284,12 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                     "cvd": round(cvd, 2),
                     "buy_vol": round(buy_vol_total, 2),
                     "sell_vol": round(sell_vol_total, 2)
+                },
+                "quant_desk": {
+                    "bot_enabled": quant_bot.enabled,
+                    "alpha": quant_bot.last_alpha,
+                    "status": quant_bot.last_status,
+                    "agent_chat": quant_bot.agent_chat[:25]
                 },
                 "positions": pos_list
             }
@@ -233,7 +307,7 @@ def place_order(req: OrderRequest):
     if not sym:
         raise HTTPException(status_code=404, detail="Mã không hợp lệ")
 
-    volume = req.fixed_lot if req.fixed_lot > 0 else calculate_lot_by_risk(real_sym, req.risk_percent, req.sl_points)
+    volume = req.fixed_lot if req.fixed_lot > 0 else risk_manager.compute_position_size(real_sym, req.sl_points, req.risk_percent)
     tick = mt5.symbol_info_tick(real_sym)
     point = sym.point
 
@@ -258,7 +332,7 @@ def place_order(req: OrderRequest):
         "tp": round(tp, sym.digits),
         "deviation": 20,
         "magic": 202699,
-        "comment": "NEXUS_INST_EXEC",
+        "comment": "NEXUS_MANUAL",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
@@ -269,6 +343,7 @@ def place_order(req: OrderRequest):
 
     if res.retcode != mt5.TRADE_RETCODE_DONE:
         return {"status": "ERR", "code": res.retcode, "msg": res.comment}
+    quant_bot.push_chat("QUANT TRADER", "#ff9900", f"Lệnh thủ công #{res.order}: {req.order_type} {volume} lot {real_sym} @ {res.price}.")
     return {"status": "OK", "ticket": res.order, "vol": volume, "price": res.price}
 
 @app.post("/api/breakeven/{ticket}")
