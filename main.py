@@ -449,76 +449,9 @@ def close_position(ticket: int, request: Request):
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
 # === DYNAMIC QUANT DECISION & CHART LEVELS ===
-from quant_decision_engine import brain as dynamic_brain
+from fastapi.responses import PlainTextResponse
+from quant_decision_engine import novelty_brain
 
-def _get_universal_ohlcv(requested_symbol: str, count: int = 250):
-    # 1. Thử lấy trực tiếp từ MT5 nếu terminal đang mở
-    try:
-        if not mt5.terminal_info():
-            mt5.initialize()
-        if mt5.terminal_info():
-            candidates = []
-            if requested_symbol and requested_symbol not in ("AUTO", "SYNCING..."):
-                candidates.append(requested_symbol)
-            for default_sym in ["XAUUSD", "XAUUSDm", "GOLD", "BTCUSD", "BTCUSDm", "EURUSD", "EURUSDm"]:
-                if default_sym not in candidates:
-                    candidates.append(default_sym)
-            visible_syms = mt5.symbols_get() or []
-            for s in visible_syms:
-                if s.visible and s.name not in candidates:
-                    candidates.append(s.name)
-            for sym in candidates[:30]:
-                mt5.symbol_select(sym, True)
-                rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, count)
-                if rates is not None and len(rates) >= 40:
-                    info = mt5.symbol_info(sym)
-                    digits = info.digits if info else 2
-                    return sym, rates, digits
-    except Exception:
-        pass
-    return None, None, 2
-
-@app.get("/api/quant/decision")
-async def get_quant_decision(symbol: str = "AUTO", last_price: float = 0.0):
-    sym, rates, digits = _get_universal_ohlcv(symbol, 250)
-    if rates is not None:
-        closes = [float(r['close']) for r in rates]
-        highs = [float(r['high']) for r in rates]
-        lows = [float(r['low']) for r in rates]
-        vols = [float(r['tick_volume']) for r in rates]
-        sig, _ = dynamic_brain.infer_and_plan(sym, closes, highs, lows, vols, digits)
-        return {"signal": sig}
-
-    # Fallback thông minh dùng chính giá từ chart web nếu MT5 tạm đóng kết nối cuối tuần
-    if last_price > 0:
-        digits = 2 if last_price > 50 else 5
-        np.random.seed(int(last_price * 100) % 10000)
-        step = last_price * 0.0006
-        closes = list(last_price + np.cumsum(np.random.randn(120) * step))
-        closes[-1] = last_price
-        highs = [c + abs(np.random.randn()) * step for c in closes]
-        lows = [c - abs(np.random.randn()) * step for c in closes]
-        vols = [float(np.random.randint(80, 450)) for _ in closes]
-        clean_sym = symbol if symbol not in ("AUTO", "SYNCING...") else "XAUUSD"
-        sig, _ = dynamic_brain.infer_and_plan(clean_sym, closes, highs, lows, vols, digits)
-        return {"signal": sig}
-
-    return {"signal": dynamic_brain.active_signal}
-
-@app.post("/api/quant/retrain")
-async def retrain_quant_model(symbol: str = "AUTO", last_price: float = 0.0):
-    sym, rates, _ = _get_universal_ohlcv(symbol, 1000)
-    if rates is not None and len(rates) >= 50:
-        closes = [float(r['close']) for r in rates]
-        highs = [float(r['high']) for r in rates]
-        lows = [float(r['low']) for r in rates]
-        vols = [float(r['tick_volume']) for r in rates]
-        return dynamic_brain.train_triple_barrier(closes, highs, lows, vols, epochs=250)
-    if last_price > 0:
-        step = last_price * 0.0006
-        closes = list(last_price + np.cumsum(np.random.randn(200) * step))
-        highs = [c + abs(np.random.randn()) * step for c in closes]
-        lows = [c - abs(np.random.randn()) * step for c in closes]
-        vols = [float(np.random.randint(80, 450)) for _ in closes]
-        return dynamic_brain.train_triple_barrier(closes, highs, lows, vols, epochs=250)
-    return {"status": "no_data", "epochs": dynamic_brain.trained_epochs}
+@app.get("/api/quant/export_csv", response_class=PlainTextResponse)
+async def export_quant_research_csv():
+    return novelty_brain.export_csv()
