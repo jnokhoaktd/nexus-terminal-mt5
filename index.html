@@ -979,7 +979,7 @@
       const canvas = document.getElementById("draw-canvas");
 
       chart = LightweightCharts.createChart(container, {
-        layout: { background: { color: '#070a0f' }, textColor: '#94a3b8', fontFamily: 'Consolas, monospace' },
+        layout: { attributionLogo: false, background: { color: '#070a0f' }, textColor: '#94a3b8', fontFamily: 'Consolas, monospace' },
         grid: { vertLines: { color: '#111827' }, horzLines: { color: '#111827' } },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
         rightPriceScale: { borderColor: '#1e293b', autoScale: true },
@@ -1232,7 +1232,7 @@
       const btBox = document.getElementById("bt-chart");
       btBox.innerHTML = "";
       const btChart = LightweightCharts.createChart(btBox, {
-        layout: { background: { color: '#070a0f' }, textColor: '#94a3b8' },
+        layout: { attributionLogo: false, background: { color: '#070a0f' }, textColor: '#94a3b8' },
         grid: { vertLines: { color: '#111827' }, horzLines: { color: '#111827' } },
         width: btBox.clientWidth, height: btBox.clientHeight
       });
@@ -1281,6 +1281,7 @@
   </script>
 </body>
 </html>
+
 
 
 
