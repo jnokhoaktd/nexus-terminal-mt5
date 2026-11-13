@@ -345,7 +345,7 @@
                   <button class="m-btn active" id="m-orderflow" onclick="switch3DModel('orderflow')">ORDERFLOW</button>
                   <button class="m-btn" id="m-kalman" onclick="switch3DModel('kalman')">KALMAN</button>
                   <button class="m-btn" id="m-garch" onclick="switch3DModel('garch')">GARCH(1,1)</button>
-                  <button class="m-btn" onclick="reset3DCamera()" title="Đặt lại góc nhìn">↺</button>
+                  <button class="m-btn active" id="btn-spin3d" onclick="toggle3DSpin()" title="Tự xoay mô hình 3D">SPIN: ON</button><button class="m-btn" onclick="reset3DCamera()" title="Đặt lại góc nhìn">↺</button>
                 </div>
               </div>
 
@@ -365,7 +365,7 @@
             <!-- RIGHT PANEL: COLAB DL BRIDGE + FOOTPRINT + AI WAR ROOM -->
             <div class="analytics-side">
               <div class="sub-tabs">
-                <button class="sub-tab-btn active" id="tab-warroom" onclick="switchSideTab('warroom')">AI WAR ROOM & COLAB DL</button>
+                <button class="sub-tab-btn active" id="tab-warroom" onclick="switchSideTab('warroom')"><span style="color:#ef4444;">●</span> AI LIVE STREAM & COLAB</button>
                 <button class="sub-tab-btn" id="tab-footprint" onclick="switchSideTab('footprint')">FOOTPRINT (BID×ASK)</button>
               </div>
 
@@ -590,9 +590,43 @@
         camDist = Math.max(13, Math.min(40, camDist + e.deltaY * 0.015));
       });
 
+      let autoSpin3D = true;
+      let baseHeights3D = null;
+      window.toggle3DSpin = function() {
+        autoSpin3D = !autoSpin3D;
+        const btn = document.getElementById("btn-spin3d");
+        btn.innerText = autoSpin3D ? "SPIN: ON" : "SPIN: OFF";
+        btn.classList.toggle("active", autoSpin3D);
+      };
+
+      setInterval(() => {
+        if (document.getElementById("surface3d-view").style.display === "grid") {
+          loadInstitutionalAnalytics();
+        }
+      }, 2500);
+
       function animate3D() {
         requestAnimationFrame(animate3D);
         if (document.getElementById("surface3d-view").style.display === "grid") {
+          if (autoSpin3D && !isDragging3D) {
+            rotY += 0.0045;
+          }
+          if (mesh3D && wire3D) {
+            const t = performance.now() * 0.0022;
+            const pos = mesh3D.geometry.attributes.position;
+            if (!baseHeights3D || baseHeights3D.length !== pos.count) {
+              baseHeights3D = new Float32Array(pos.count);
+              for (let i = 0; i < pos.count; i++) baseHeights3D[i] = pos.getY(i);
+            }
+            for (let i = 0; i < pos.count; i++) {
+              const x = pos.getX(i);
+              const z = pos.getZ(i);
+              const ripple = Math.sin(x * 0.45 + t) * Math.cos(z * 0.45 + t * 0.8) * 0.14;
+              pos.setY(i, baseHeights3D[i] + ripple);
+            }
+            pos.needsUpdate = true;
+            mesh3D.geometry.computeVertexNormals();
+          }
           camera3D.position.x = camDist * Math.sin(rotY) * Math.cos(rotX);
           camera3D.position.y = camDist * Math.sin(rotX);
           camera3D.position.z = camDist * Math.cos(rotY) * Math.cos(rotX);
@@ -655,7 +689,7 @@
         }).join("");
 
         // Render 3D Mesh
-        if (mesh3D) { scene3D.remove(mesh3D); scene3D.remove(wire3D); }
+        if (mesh3D) { scene3D.remove(mesh3D); scene3D.remove(wire3D); } baseHeights3D = null;
         const size = 32;
         const geom = new THREE.PlaneGeometry(16, 16, size - 1, size - 1);
         geom.rotateX(-Math.PI / 2);
@@ -1236,4 +1270,5 @@
   </script>
 </body>
 </html>
+
 
