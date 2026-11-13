@@ -7,11 +7,13 @@ class ColabDeepQuantBridge:
         self.colab_url = ""
         self.connected = False
         self.last_prediction = {
-            "source": "LOCAL_CPU_FALLBACK",
+            "source": "LOCAL_QUANT_PROXY",
             "prob_up": 50.0,
             "prob_down": 50.0,
-            "regime": "NEUTRAL",
-            "expected_move_pts": 0.0
+            "regime": "UNLINKED",
+            "expected_move_pts": 0.0,
+            "trained": False,
+            "train_acc": 0.0
         }
 
     def set_url(self, url: str):
@@ -19,23 +21,39 @@ class ColabDeepQuantBridge:
         self.colab_url = clean
         if not clean:
             self.connected = False
-            return False, "Colab URL cleared (Local fallback active)"
+            return False, "Colab URL cleared"
         try:
             req = urllib.request.Request(f"{clean}/health", method="GET")
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=4) as resp:
                 if resp.status == 200:
+                    info = json.loads(resp.read().decode("utf-8"))
                     self.connected = True
-                    return True, f"Connected to Colab GPU Node: {clean}"
+                    return True, f"Connected Colab GPU ({info.get('gpu', 'cuda')}) | Trained: {info.get('trained', False)}"
         except Exception as e:
             self.connected = False
-            return False, f"Colab unreachable ({str(e)[:45]}). Using local fallback."
+            return False, f"Unreachable ({str(e)[:45]})"
         return False, "Connection failed"
 
+    def train_remote(self, candles: list, epochs: int = 25):
+        if not self.connected or not self.colab_url:
+            return {"status": "ERR", "msg": "Chưa kết nối Colab URL! Hãy bấm LINK trước."}
+        try:
+            payload = json.dumps({"candles": candles, "epochs": epochs}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.colab_url}/train",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return {"status": "ERR", "msg": str(e)}
+
     def infer(self, candles: list, cvd: float = 0.0):
-        """Gửi tensor chuỗi thời gian sang Google Colab GPU để suy luận Deep Learning"""
         if self.connected and self.colab_url:
             try:
-                payload = json.dumps({"candles": candles[-64:], "cvd": cvd}).encode("utf-8")
+                payload = json.dumps({"candles": candles[-48:], "cvd": cvd}).encode("utf-8")
                 req = urllib.request.Request(
                     f"{self.colab_url}/predict",
                     data=payload,
@@ -50,7 +68,6 @@ class ColabDeepQuantBridge:
             except Exception:
                 self.connected = False
 
-        # Local lightweight statistical neural proxy khi chưa kết nối Colab
         if len(candles) >= 20:
             closes = np.array([c["close"] for c in candles[-20:]], dtype=float)
             rets = np.diff(closes)
@@ -58,21 +75,19 @@ class ColabDeepQuantBridge:
             sigmoid = 1.0 / (1.0 + np.exp(-momentum * 1.4))
             prob_up = round(float(sigmoid * 100.0), 1)
             prob_down = round(100.0 - prob_up, 1)
-            regime = "BULLISH_EXPANSION" if prob_up > 60 else ("BEARISH_EXPANSION" if prob_down > 60 else "MEAN_REVERTING")
+            regime = "LOCAL_BULLISH" if prob_up >= 58 else ("LOCAL_BEARISH" if prob_down >= 58 else "LOCAL_NEUTRAL")
             self.last_prediction = {
                 "source": "LOCAL_QUANT_PROXY",
                 "prob_up": prob_up,
                 "prob_down": prob_down,
                 "regime": regime,
-                "expected_move_pts": round(float(np.std(rets) * 2.5), 2)
+                "expected_move_pts": round(float(np.std(rets) * 2.5), 2),
+                "trained": False,
+                "train_acc": 0.0
             }
         return self.last_prediction
 
 def build_footprint_profile(candles: list, bins: int = 18):
-    """
-    Xây dựng cấu trúc Footprint & Volume Profile (Bid x Ask theo từng mức giá)
-    Tìm Point of Control (POC) và các vùng mất cân bằng thanh khoản (Imbalance).
-    """
     if not candles or len(candles) < 10:
         return {"levels": [], "poc_price": 0.0, "total_delta": 0.0}
 
@@ -93,7 +108,6 @@ def build_footprint_profile(candles: list, bins: int = 18):
     for c in recent:
         vol = float(c.get("volume", 10.0))
         is_bull = c["close"] >= c["open"]
-        # Phân bổ khối lượng vào các mức giá mà cây nến đi qua
         touched = [lv for lv in levels if c["low"] <= lv["price"] <= c["high"]]
         if not touched:
             closest = min(levels, key=lambda lv: abs(lv["price"] - c["close"]))

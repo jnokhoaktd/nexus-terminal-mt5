@@ -1,5 +1,4 @@
-﻿import time
-from datetime import datetime
+﻿from datetime import datetime
 import MetaTrader5 as mt5
 from quant_modules.research import compute_alpha_signal
 from quant_modules.risk import QuantRiskManager
@@ -49,28 +48,22 @@ class AutonomousQuantTrader:
                 profit_pts = (tick.bid - p.price_open) / sym.point
                 if profit_pts >= self.auto_be_points and p.sl < p.price_open:
                     mt5.order_send({
-                        "action": mt5.TRADE_ACTION_SLTP,
-                        "symbol": p.symbol,
-                        "position": p.ticket,
-                        "sl": p.price_open,
-                        "tp": p.tp
+                        "action": mt5.TRADE_ACTION_SLTP, "symbol": p.symbol,
+                        "position": p.ticket, "sl": p.price_open, "tp": p.tp
                     })
                     self.last_status = f"TRADER: Auto-BE #{p.ticket}"
-                    self.push_chat("QUANT TRADER", "#00d26a", f"Lệnh #{p.ticket} đạt +{int(profit_pts)} pts. Đã kéo SL về hòa vốn (Breakeven @ {p.price_open}).")
+                    self.push_chat("QUANT TRADER", "#10b981", f"Lệnh #{p.ticket} đạt +{int(profit_pts)} pts -> Kéo SL về hòa vốn @ {p.price_open}.")
             elif p.type == mt5.POSITION_TYPE_SELL:
                 profit_pts = (p.price_open - tick.ask) / sym.point
                 if profit_pts >= self.auto_be_points and (p.sl > p.price_open or p.sl == 0):
                     mt5.order_send({
-                        "action": mt5.TRADE_ACTION_SLTP,
-                        "symbol": p.symbol,
-                        "position": p.ticket,
-                        "sl": p.price_open,
-                        "tp": p.tp
+                        "action": mt5.TRADE_ACTION_SLTP, "symbol": p.symbol,
+                        "position": p.ticket, "sl": p.price_open, "tp": p.tp
                     })
                     self.last_status = f"TRADER: Auto-BE #{p.ticket}"
-                    self.push_chat("QUANT TRADER", "#00d26a", f"Lệnh #{p.ticket} đạt +{int(profit_pts)} pts. Đã kéo SL về hòa vốn (Breakeven @ {p.price_open}).")
+                    self.push_chat("QUANT TRADER", "#10b981", f"Lệnh #{p.ticket} đạt +{int(profit_pts)} pts -> Kéo SL về hòa vốn @ {p.price_open}.")
 
-    def step(self, cvd: float = 0.0):
+    def step(self, cvd: float = 0.0, dl_pred: dict = None):
         rates = mt5.copy_rates_from_pos(self.symbol, self.timeframe, 0, 50)
         if rates is None or len(rates) < 30:
             return
@@ -83,10 +76,10 @@ class AutonomousQuantTrader:
         self.last_alpha = alpha
 
         if alpha["signal"] != "HOLD" and alpha["signal"] != prev_sig:
+            dl_note = f"Colab GPU: UP {dl_pred['prob_up']}% / DN {dl_pred['prob_down']}%" if dl_pred else ""
             self.push_chat(
-                "QUANT RESEARCH",
-                "#00e5ff",
-                f"Phát hiện tín hiệu {alpha['signal']} trên {self.symbol} (Độ tin cậy {alpha['confidence']}%, Z={alpha['z_score']}). Cơ sở: {alpha['reason']}."
+                "QUANT RESEARCH", "#38bdf8",
+                f"Tín hiệu {alpha['signal']} trên {self.symbol} (Conf {alpha['confidence']}%, KZ={alpha['kalman_z']}). {dl_note}"
             )
 
         if not self.enabled:
@@ -96,14 +89,23 @@ class AutonomousQuantTrader:
         self.manage_open_positions()
 
         if alpha["signal"] in ("BUY", "SELL") and current_bar_time != self.last_trade_bar_time:
+            # Kiểm tra đồng thuận từ Deep Learning (nếu đang kết nối Colab)
+            if dl_pred and dl_pred.get("source") == "COLAB_T4_GPU":
+                if alpha["signal"] == "BUY" and dl_pred.get("prob_up", 50) < 55.0:
+                    self.push_chat("QUANT RESEARCH", "#94a3b8", f"Bỏ qua kèo BUY: Colab GPU xác suất tăng thấp ({dl_pred['prob_up']}% < 55%).")
+                    return
+                if alpha["signal"] == "SELL" and dl_pred.get("prob_down", 50) < 55.0:
+                    self.push_chat("QUANT RESEARCH", "#94a3b8", f"Bỏ qua kèo SELL: Colab GPU xác suất giảm thấp ({dl_pred['prob_down']}% < 55%).")
+                    return
+
             allowed, reason = self.risk_mgr.evaluate_trade_permission(self.symbol)
             if not allowed:
                 self.last_status = reason
-                self.push_chat("QUANT RISK", "#ff3b30", f"TỪ CHỐI LỆNH {alpha['signal']}: {reason}. Giữ nguyên trạng thái phòng thủ.")
+                self.push_chat("QUANT RISK", "#ef4444", f"CHẶN LỆNH {alpha['signal']}: {reason}.")
                 return
 
             lot = self.risk_mgr.compute_position_size(self.symbol, self.sl_points)
-            self.push_chat("QUANT RISK", "#ff9900", f"DUYỆT RỦI RO: Tài khoản an toàn (DD < {self.risk_mgr.max_daily_loss_pct}%). Cấp phép khối lượng {lot} lot.")
+            self.push_chat("QUANT RISK", "#f59e0b", f"DUYỆT LỆNH: Risk OK (DD < {self.risk_mgr.max_daily_loss_pct}%). Cấp phép {lot} lot.")
 
             sym = mt5.symbol_info(self.symbol)
             tick = mt5.symbol_info_tick(self.symbol)
@@ -121,18 +123,10 @@ class AutonomousQuantTrader:
                 tp = price - self.tp_points * point
 
             req = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.symbol,
-                "volume": lot,
-                "type": action_type,
-                "price": price,
-                "sl": round(sl, sym.digits),
-                "tp": round(tp, sym.digits),
-                "deviation": 20,
-                "magic": 202688,
-                "comment": f"AI_BOT_{alpha['confidence']}",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
+                "action": mt5.TRADE_ACTION_DEAL, "symbol": self.symbol, "volume": lot,
+                "type": action_type, "price": price, "sl": round(sl, sym.digits), "tp": round(tp, sym.digits),
+                "deviation": 20, "magic": 202688, "comment": f"NEXUS_AI_{alpha['confidence']}",
+                "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
             }
             res = mt5.order_send(req)
             if res.retcode != mt5.TRADE_RETCODE_DONE:
@@ -142,8 +136,6 @@ class AutonomousQuantTrader:
             if res.retcode == mt5.TRADE_RETCODE_DONE:
                 self.last_trade_bar_time = current_bar_time
                 self.last_status = f"EXECUTED {alpha['signal']} {lot} lot #{res.order}"
-                self.push_chat("QUANT TRADER", "#00d26a", f"KHỚP LỆNH #{res.order}: {alpha['signal']} {lot} lot {self.symbol} @ {res.price} (SL: {round(sl, sym.digits)} | TP: {round(tp, sym.digits)}).")
-                self.push_chat("QUANT DEV", "#e040fb", f"Telemetry: Lệnh #{res.order} đồng bộ thành công xuống MT5 Bridge (Latency < 18ms).")
+                self.push_chat("QUANT TRADER", "#10b981", f"ĐÃ KHỚP #{res.order}: {alpha['signal']} {lot} lot {self.symbol} @ {res.price}.")
             else:
                 self.last_status = f"EXEC ERR: {res.comment}"
-                self.push_chat("QUANT DEV", "#ff3b30", f"LỖI THỰC THI MT5 (Retcode {res.retcode}): {res.comment}")

@@ -382,7 +382,7 @@
                   </div>
                   <div class="colab-input-row">
                     <input type="text" id="colabUrlInput" placeholder="Dán Ngrok URL từ Google Colab...">
-                    <button class="btn-ui" style="border-color:var(--cyan); color:var(--cyan);" onclick="linkColabServer()">LINK</button>
+                    <button class="btn-ui" style="border-color:var(--cyan); color:var(--cyan);" onclick="linkColabServer()">LINK</button><button class="btn-ui" id="btnTrainColab" style="border-color:var(--green); color:var(--green);" onclick="trainColabModel()">TRAIN GPU</button>
                   </div>
                 </div>
 
@@ -507,6 +507,24 @@
       document.getElementById("tab-footprint").classList.toggle("active", tab === "footprint");
     }
 
+        async function trainColabModel() {
+      const btn = document.getElementById("btnTrainColab");
+      btn.innerText = "TRAINING...";
+      log(`Sending 500 bars of ${currentSym} [${currentTF}] to Google Colab GPU for training...`);
+      const res = await fetch("/api/colab/train", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: currentSym, tf: currentTF, bars: 500, epochs: 30 })
+      });
+      const data = await res.json();
+      btn.innerText = "TRAIN GPU";
+      if (data.status === "TRAINED") {
+        log(`COLAB GPU TRAINED: Accuracy ${data.accuracy}% | Loss ${data.loss}`);
+        loadInstitutionalAnalytics();
+      } else {
+        log(`TRAIN ERR: ${data.msg}`);
+      }
+    }
     async function linkColabServer() {
       const url = document.getElementById("colabUrlInput").value;
       const res = await fetch("/api/colab/connect", {
@@ -604,6 +622,10 @@
         document.getElementById("m-spot-fv").innerText = `${m.spot} / ${m.kalman_fv}`;
         document.getElementById("m-kz-garch").innerText = `${m.kalman_z}σ / ${m.garch_ratio}x`;
         document.getElementById("m-poc-delta").innerText = `${m.poc} / ${m.net_delta > 0 ? '+' : ''}${m.net_delta}`;
+        if (m.poc && candleSeries) {
+          if (pocLine) candleSeries.removePriceLine(pocLine);
+          pocLine = candleSeries.createPriceLine({ price: m.poc, color: '#f59e0b', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'FP POC' });
+        }
 
         // Cập nhật Deep Learning Card (Colab hoặc Local Proxy)
         const dl = data.dl_prediction;
@@ -668,7 +690,7 @@
     let activeColor = "#f59e0b";
     let magnetMode = false;
     let drawings = [];
-    let hLines = [];
+    let hLines = []; let pocLine = null;
     let tempPoints = [];
     let mousePos = null;
 
@@ -1214,3 +1236,4 @@
   </script>
 </body>
 </html>
+

@@ -13,7 +13,7 @@ from quant_modules.risk import QuantRiskManager
 from quant_modules.trader import AutonomousQuantTrader
 from quant_modules.colab_bridge import ColabDeepQuantBridge, build_footprint_profile
 
-app = FastAPI(title="NEXUS // BLOOMBERG-STYLE QUANT & COLAB DL TERMINAL")
+app = FastAPI(title="NEXUS // BLOOMBERG QUANT & COLAB DL TERMINAL")
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,6 +82,12 @@ class BotConfigRequest(BaseModel):
 class ColabConnectRequest(BaseModel):
     url: str
 
+class ColabTrainRequest(BaseModel):
+    symbol: str
+    tf: str
+    bars: int = 500
+    epochs: int = 25
+
 @app.get("/")
 def serve_ui():
     return FileResponse("index.html")
@@ -99,6 +105,29 @@ def connect_colab(req: ColabConnectRequest):
     ok, msg = colab_bridge.set_url(req.url)
     quant_bot.push_chat("QUANT DEV", "#38bdf8", msg)
     return {"connected": ok, "msg": msg}
+
+@app.post("/api/colab/train")
+def train_colab_model(req: ColabTrainRequest):
+    if not ensure_mt5():
+        raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
+    real_sym = resolve_symbol(req.symbol)
+    mt5_tf = TIMEFRAME_MAP.get(req.tf.upper(), mt5.TIMEFRAME_M5)
+    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, req.bars)
+    if rates is None or len(rates) < 60:
+        return {"status": "ERR", "msg": "Không đủ dữ liệu nến lịch sử để train"}
+
+    candles = [
+        {"open": float(r["open"]), "high": float(r["high"]), "low": float(r["low"]),
+         "close": float(r["close"]), "volume": float(r["tick_volume"])}
+        for r in rates
+    ]
+    res = colab_bridge.train_remote(candles, epochs=req.epochs)
+    if res.get("status") == "TRAINED":
+        quant_bot.push_chat(
+            "QUANT RESEARCH", "#10b981",
+            f"Huấn luyện xong DeepQuantNet trên GPU Colab ({real_sym} {req.tf}, {res['samples']} mẫu): Độ chính xác = {res['accuracy']}% (Loss: {res['loss']})."
+        )
+    return res
 
 @app.get("/api/history/{symbol}/{tf}")
 def get_historical_candles(symbol: str, tf: str, count: int = 400):
@@ -124,12 +153,6 @@ def get_historical_candles(symbol: str, tf: str, count: int = 400):
 
 @app.get("/api/quant/analytics/{symbol}/{tf}")
 def get_institutional_analytics(symbol: str, tf: str, model: str = "orderflow"):
-    """
-    Trả về đồng thời:
-    1. Ma trận bề mặt 3D (32x32) cho 3 mô hình: Orderflow, Kalman, GARCH(1,1)
-    2. Cấu trúc Footprint Bid x Ask & Point of Control (POC)
-    3. Dự báo Deep Learning từ Google Colab GPU (hoặc Local Proxy)
-    """
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(symbol)
@@ -212,11 +235,10 @@ def configure_quant_bot(cfg: BotConfigRequest):
     risk_manager.max_daily_loss_pct = cfg.max_dd_pct
 
     if cfg.enabled:
-        quant_bot.push_chat("QUANT DEV", "#38bdf8", f"Khởi động cụm 4 AI Agent trên {real_sym} [{cfg.tf}]. Đồng bộ Colab DL Bridge.")
-        quant_bot.push_chat("QUANT RESEARCH", "#2dd4bf", f"Đang trích xuất Kalman Fair-Value, GARCH(1,1) và Footprint POC...")
-        quant_bot.push_chat("QUANT RISK", "#f59e0b", f"Risk Gatekeeper kích hoạt: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
+        quant_bot.push_chat("QUANT DEV", "#38bdf8", f"Kích hoạt Bot AI tự trị trên {real_sym} [{cfg.tf}]. Hợp nhất Kalman + GARCH + Colab DL.")
+        quant_bot.push_chat("QUANT RISK", "#f59e0b", f"Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
     else:
-        quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã tạm dừng Bot AI tự động.")
+        quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã tắt chế độ tự động.")
 
     return {
         "status": "OK",
@@ -244,7 +266,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
     cvd, buy_vol_total, sell_vol_total = 0.0, 0.0, 0.0
 
     if not quant_bot.agent_chat:
-        quant_bot.push_chat("QUANT DEV", "#38bdf8", "NEXUS Institutional Quant Desk & Colab Deep Learning Bridge đã sẵn sàng.")
+        quant_bot.push_chat("QUANT DEV", "#38bdf8", "NEXUS Quant Engine sẵn sàng. Hãy dán link Colab GPU và bấm TRAIN ON GPU để huấn luyện mô hình.")
 
     try:
         while True:
@@ -296,21 +318,16 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
             if not quant_bot.enabled:
                 quant_bot.symbol = real_sym
                 quant_bot.timeframe = mt5_tf
-            quant_bot.step(cvd=cvd)
+            quant_bot.step(cvd=cvd, dl_pred=colab_bridge.last_prediction)
 
             pos_list = []
             if positions:
                 for p in positions:
                     pos_list.append({
-                        "ticket": p.ticket,
-                        "symbol": p.symbol,
+                        "ticket": p.ticket, "symbol": p.symbol,
                         "type": "BUY" if p.type == mt5.POSITION_TYPE_BUY else "SELL",
-                        "volume": p.volume,
-                        "open": p.price_open,
-                        "sl": p.sl,
-                        "tp": p.tp,
-                        "profit": p.profit,
-                        "source": "AI_BOT" if p.magic == 202688 else "MANUAL"
+                        "volume": p.volume, "open": p.price_open, "sl": p.sl, "tp": p.tp,
+                        "profit": p.profit, "source": "AI_BOT" if p.magic == 202688 else "MANUAL"
                     })
 
             payload = {
@@ -335,6 +352,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                     "bot_enabled": quant_bot.enabled,
                     "alpha": quant_bot.last_alpha,
                     "status": quant_bot.last_status,
+                    "dl": colab_bridge.last_prediction,
                     "agent_chat": quant_bot.agent_chat[:25]
                 },
                 "positions": pos_list
@@ -369,18 +387,10 @@ def place_order(req: OrderRequest):
         tp = price - req.tp_points * point if req.tp_points > 0 else 0.0
 
     request = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": real_sym,
-        "volume": volume,
-        "type": action_type,
-        "price": price,
-        "sl": round(sl, sym.digits),
-        "tp": round(tp, sym.digits),
-        "deviation": 20,
-        "magic": 202699,
-        "comment": "NEXUS_MANUAL",
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "action": mt5.TRADE_ACTION_DEAL, "symbol": real_sym, "volume": volume,
+        "type": action_type, "price": price, "sl": round(sl, sym.digits), "tp": round(tp, sym.digits),
+        "deviation": 20, "magic": 202699, "comment": "NEXUS_MANUAL",
+        "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
     }
     res = mt5.order_send(request)
     if res.retcode != mt5.TRADE_RETCODE_DONE:
@@ -399,11 +409,8 @@ def move_breakeven(ticket: int):
         raise HTTPException(status_code=404, detail="Position not found")
     p = pos[0]
     res = mt5.order_send({
-        "action": mt5.TRADE_ACTION_SLTP,
-        "symbol": p.symbol,
-        "position": p.ticket,
-        "sl": p.price_open,
-        "tp": p.tp
+        "action": mt5.TRADE_ACTION_SLTP, "symbol": p.symbol,
+        "position": p.ticket, "sl": p.price_open, "tp": p.tp
     })
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
@@ -418,17 +425,10 @@ def close_position(ticket: int):
     price = tick.bid if p.type == mt5.POSITION_TYPE_BUY else tick.ask
 
     req = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": p.symbol,
-        "volume": p.volume,
-        "type": close_type,
-        "position": p.ticket,
-        "price": price,
-        "deviation": 20,
-        "magic": 202699,
-        "comment": "NEXUS_CLOSE",
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "action": mt5.TRADE_ACTION_DEAL, "symbol": p.symbol, "volume": p.volume,
+        "type": close_type, "position": p.ticket, "price": price,
+        "deviation": 20, "magic": 202699, "comment": "NEXUS_CLOSE",
+        "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC,
     }
     res = mt5.order_send(req)
     if res.retcode != mt5.TRADE_RETCODE_DONE:
