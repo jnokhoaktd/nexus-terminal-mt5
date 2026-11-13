@@ -449,10 +449,24 @@ def close_position(ticket: int, request: Request):
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
 
+
 # === DYNAMIC QUANT DECISION & CHART LEVELS ===
+import time as _time
 from datetime import datetime as _dt
-from fastapi.responses import PlainTextResponse
+from fastapi import Request
+from fastapi.responses import PlainTextResponse, JSONResponse
 from quant_decision_engine import strict_brain
+from colab_gpu_bridge import query_colab_gpu_prediction, set_colab_url, get_colab_url
+
+@app.middleware("http")
+async def nexus_zero_fault_middleware(request: Request, call_next):
+    t0 = _time.perf_counter()
+    try:
+        response = await call_next(request)
+        response.headers["X-Nexus-Latency-Ms"] = str(round((_time.perf_counter() - t0) * 1000, 1))
+        return response
+    except Exception as exc:
+        return JSONResponse(status_code=200, content={"status": "recovered", "warning": str(exc)})
 
 def _fetch_real_mt5_bars(requested_symbol: str = "AUTO", count: int = 500):
     if not mt5.terminal_info():
@@ -473,26 +487,42 @@ def _fetch_real_mt5_bars(requested_symbol: str = "AUTO", count: int = 500):
     for sym in candidates[:25]:
         mt5.symbol_select(sym, True)
         rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, count)
-        if rates is not None and len(rates) >= 80:
+        if rates is not None and len(rates) >= 120:
             info = mt5.symbol_info(sym)
             digits = info.digits if info else 2
             last_ts = _dt.fromtimestamp(int(rates[-1]['time'])).strftime("%Y-%m-%d %H:%M")
             return sym, rates, digits, last_ts
     return None, None, 2, None
 
+@app.post("/api/quant/connect_colab")
+async def connect_colab_endpoint(payload: dict):
+    url = set_colab_url(payload.get("url", ""))
+    return {"status": "updated", "colab_url": url}
+
 @app.get("/api/quant/strict_audit")
 async def get_strict_quant_audit(symbol: str = "AUTO"):
     sym, rates, digits, last_ts = _fetch_real_mt5_bars(symbol, 500)
     if rates is None:
-        return {
-            "status": "NO_REAL_MT5_DATA",
-            "message": "Chua ket noi duoc MT5 hoac khong co du lieu nen that. Vui long mo phan mem MT5."
-        }
+        return {"status": "NO_REAL_MT5_DATA", "colab_url": get_colab_url()}
+
     closes = [float(r['close']) for r in rates]
     highs = [float(r['high']) for r in rates]
     lows = [float(r['low']) for r in rates]
     vols = [float(r['tick_volume']) for r in rates]
-    return strict_brain.infer_strict(sym, closes, highs, lows, vols, last_ts, digits)
+
+    colab_res = query_colab_gpu_prediction(rates)
+    colab_prob = None
+    gpu_auc = None
+    if colab_res and "prob_buy" in colab_res:
+        colab_prob = colab_res["prob_buy"]
+        gpu_auc = colab_res.get("oos_auc")
+
+    sig = strict_brain.infer_strict(sym, closes, highs, lows, vols, last_ts, digits, colab_prob=colab_prob)
+    sig["colab_url"] = get_colab_url()
+    sig["gpu_connected"] = colab_prob is not None
+    if gpu_auc is not None:
+        sig["gpu_oos_auc"] = gpu_auc
+    return sig
 
 @app.post("/api/quant/strict_retrain")
 async def post_strict_retrain(symbol: str = "AUTO"):
@@ -508,3 +538,8 @@ async def post_strict_retrain(symbol: str = "AUTO"):
 @app.get("/api/quant/export_csv", response_class=PlainTextResponse)
 async def export_quant_research_csv():
     return strict_brain.export_csv()
+
+@app.get("/api/terminal/telemetry")
+async def get_terminal_telemetry():
+    mt5_ok = bool(mt5.terminal_info())
+    return {"status": "ONLINE", "mt5_connected": mt5_ok, "colab_url": get_colab_url()}
