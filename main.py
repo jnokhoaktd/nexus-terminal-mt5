@@ -451,51 +451,51 @@ def close_position(ticket: int, request: Request):
 # === DYNAMIC QUANT DECISION & CHART LEVELS ===
 from quant_decision_engine import brain as dynamic_brain
 
-@app.get("/api/quant/decision")
-async def get_quant_decision(symbol: str = "XAUUSD"):
-    try:
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 200)
-        if rates is None or len(rates) < 30:
-            # Thử tìm symbol khả dụng nếu tài khoản dùng hậu tố (vd: XAUUSDm, XAUUSD.a)
-            syms = mt5.symbols_get()
-            for s in (syms or []):
-                if "XAU" in s.name or "BTC" in s.name or "EURUSD" in s.name:
-                    symbol = s.name
-                    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 200)
-                    if rates is not None and len(rates) >= 30:
-                        break
+def _resolve_mt5_rates(requested_symbol: str, count: int = 200):
+    if not mt5.terminal_info():
+        mt5.initialize()
+    candidates = []
+    if requested_symbol and requested_symbol != "AUTO":
+        candidates.append(requested_symbol)
+    # Ưu tiên các cặp phổ biến và toàn bộ symbol đang hiển thị trong Market Watch
+    visible_syms = mt5.symbols_get(group="*") or []
+    for s in visible_syms:
+        if s.visible and s.name not in candidates:
+            candidates.append(s.name)
+    for sym in candidates[:25]:
+        mt5.symbol_select(sym, True)
+        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, count)
         if rates is not None and len(rates) >= 30:
+            info = mt5.symbol_info(sym)
+            digits = info.digits if info else 2
+            return sym, rates, digits
+    return None, None, 2
+
+@app.get("/api/quant/decision")
+async def get_quant_decision(symbol: str = "AUTO"):
+    try:
+        resolved_sym, rates, digits = _resolve_mt5_rates(symbol, 200)
+        if rates is not None:
             closes = [float(r['close']) for r in rates]
             highs = [float(r['high']) for r in rates]
             lows = [float(r['low']) for r in rates]
             vols = [float(r['tick_volume']) for r in rates]
-            info = mt5.symbol_info(symbol)
-            digits = info.digits if info else 2
-            sig, msgs = dynamic_brain.infer_and_plan(symbol, closes, highs, lows, vols, digits)
+            sig, msgs = dynamic_brain.infer_and_plan(resolved_sym, closes, highs, lows, vols, digits)
             return {"signal": sig, "messages": msgs}
     except Exception as e:
-        pass
+        return {"signal": dynamic_brain.active_signal, "error": str(e)}
     return {"signal": dynamic_brain.active_signal, "messages": []}
 
 @app.post("/api/quant/retrain")
-async def retrain_quant_model(symbol: str = "XAUUSD"):
+async def retrain_quant_model(symbol: str = "AUTO"):
     try:
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 1000)
-        if rates is None or len(rates) < 50:
-            syms = mt5.symbols_get()
-            for s in (syms or []):
-                if "XAU" in s.name or "BTC" in s.name or "EURUSD" in s.name:
-                    symbol = s.name
-                    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 1000)
-                    if rates is not None and len(rates) >= 50:
-                        break
+        resolved_sym, rates, _ = _resolve_mt5_rates(symbol, 1000)
         if rates is not None and len(rates) >= 50:
             closes = [float(r['close']) for r in rates]
             highs = [float(r['high']) for r in rates]
             lows = [float(r['low']) for r in rates]
             vols = [float(r['tick_volume']) for r in rates]
-            res = dynamic_brain.train_on_history(closes, highs, lows, vols, epochs=120)
-            return res
+            return dynamic_brain.train_on_history(closes, highs, lows, vols, epochs=120)
     except Exception as e:
         return {"status": "error", "detail": str(e)}
     return {"status": "no_mt5_data"}

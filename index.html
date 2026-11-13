@@ -1279,56 +1279,178 @@
       await connectFeed();
     })();
   </script>
-<div id="nexus-trade-banner" style="position:fixed; bottom:18px; left:18px; z-index:9999; background:rgba(10,15,25,0.92); border:1px solid #00f0ff; border-radius:8px; padding:12px 16px; font-family:monospace; color:#fff; box-shadow:0 0 20px rgba(0,240,255,0.2); min-width:310px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-    <span style="color:#00f0ff; font-weight:bold; font-size:12px;">AI TRADE DECISION ENGINE</span>
-    <button onclick="retrainQuantBrain()" style="background:#00f0ff; color:#000; border:none; border-radius:4px; padding:3px 8px; font-weight:bold; font-size:11px; cursor:pointer;">TRAIN LẠI MODEL</button>
+<style>
+  #nexus-quant-hud {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 9999;
+    width: 340px;
+    background: rgba(9, 13, 22, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-left: 3px solid #38bdf8;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    color: #e2e8f0;
+    padding: 14px 16px;
+    user-select: none;
+  }
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .hud-title {
+    font-size: 10px;
+    letter-spacing: 1.4px;
+    color: #94a3b8;
+    font-weight: 700;
+  }
+  .hud-btn {
+    background: rgba(56, 189, 248, 0.12);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    padding: 3px 8px;
+    font-size: 10px;
+    font-family: inherit;
+    letter-spacing: 0.8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .hud-btn:hover {
+    background: rgba(56, 189, 248, 0.25);
+  }
+  .hud-signal-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .hud-action {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud-conf {
+    font-size: 12px;
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+  }
+  .hud-cell-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #64748b;
+    margin-bottom: 3px;
+  }
+  .hud-cell-val {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+
+<div id="nexus-quant-hud">
+  <div class="hud-header">
+    <span class="hud-title">QUANT EXECUTION ENGINE // V2</span>
+    <button class="hud-btn" id="btn-retrain-hud" onclick="retrainQuantBrain()">RETRAIN</button>
   </div>
-  <div id="decision-action" style="font-size:18px; font-weight:bold; color:#00ff88;">ĐANG PHÂN TÍCH...</div>
-  <div id="decision-levels" style="font-size:12px; color:#cbd5e1; margin-top:4px; line-height:1.5;">
-    ENTRY: -- | TP: -- | SL: --
+  <div class="hud-signal-row">
+    <div class="hud-action" id="hud-action" style="color:#38bdf8;">SYNCING...</div>
+    <div class="hud-conf" id="hud-conf">CONF: --%</div>
+  </div>
+  <div class="hud-grid">
+    <div>
+      <div class="hud-cell-label">ENTRY</div>
+      <div class="hud-cell-val" id="hud-entry" style="color:#f8fafc;">--</div>
+    </div>
+    <div>
+      <div class="hud-cell-label">TAKE PROFIT</div>
+      <div class="hud-cell-val" id="hud-tp" style="color:#10b981;">--</div>
+    </div>
+    <div>
+      <div class="hud-cell-label">STOP LOSS</div>
+      <div class="hud-cell-val" id="hud-sl" style="color:#ef4444;">--</div>
+    </div>
+  </div>
+  <div class="hud-meta">
+    <span id="hud-rr">R:R 1:--</span>
+    <span id="hud-metrics">Z: -- | CVD: --%</span>
+    <span id="hud-epochs">EP: 0</span>
   </div>
 </div>
 
 <script>
 let entryLine = null, tpLine = null, slLine = null;
 
+function getActiveChartSymbol() {
+  const sel = document.querySelector('select');
+  if (sel && sel.value) return sel.value;
+  const titleEl = document.body.innerText.match(/\b(XAUUSD[a-zA-Z0-9.]*|GOLD[a-zA-Z0-9.]*|BTCUSD[a-zA-Z0-9.]*|EURUSD[a-zA-Z0-9.]*|GBPUSD[a-zA-Z0-9.]*|US30[a-zA-Z0-9.]*|USTEC[a-zA-Z0-9.]*)\b/);
+  return titleEl ? titleEl[0] : 'AUTO';
+}
+
 async function retrainQuantBrain() {
-  const btn = event.target;
-  btn.innerText = "ĐANG TRAIN...";
+  const btn = document.getElementById('btn-retrain-hud');
+  btn.innerText = "TRAINING...";
   try {
-    const res = await fetch('/api/quant/retrain', { method: 'POST' });
+    const sym = getActiveChartSymbol();
+    const res = await fetch(`/api/quant/retrain?symbol=${encodeURIComponent(sym)}`, { method: 'POST' });
     const data = await res.json();
-    btn.innerText = "ĐÃ TRAIN (" + (data.epochs || 80) + " EPOCHS)";
-    setTimeout(() => { btn.innerText = "TRAIN LẠI MODEL"; }, 3000);
+    btn.innerText = `TRAINED (${data.epochs || 120})`;
+    setTimeout(() => { btn.innerText = "RETRAIN"; }, 2500);
     updateTradeOverlay();
   } catch (e) {
-    btn.innerText = "TRAIN LẠI MODEL";
+    btn.innerText = "RETRAIN";
   }
 }
 
 async function updateTradeOverlay() {
   try {
-    const res = await fetch('/api/quant/decision');
+    const sym = getActiveChartSymbol();
+    const res = await fetch(`/api/quant/decision?symbol=${encodeURIComponent(sym)}`);
     if (!res.ok) return;
     const data = await res.json();
     const sig = data.signal;
-    if (!sig || !sig.entry) return;
+    if (!sig || !sig.entry || sig.entry === 0) return;
 
-    const actEl = document.getElementById('decision-action');
-    const lvlEl = document.getElementById('decision-levels');
     const isBuy = sig.action === 'BUY';
+    const accent = isBuy ? '#10b981' : '#ef4444';
 
-    actEl.style.color = isBuy ? '#00ff88' : '#ff4466';
-    actEl.innerText = `${sig.action} ${sig.symbol} (${sig.confidence}%) — R:R 1:${sig.rr}`;
-    lvlEl.innerHTML = `
-      <b>ENTRY:</b> <span style="color:#ffffff">${sig.entry}</span> &nbsp;|&nbsp;
-      <b>TP:</b> <span style="color:#00ff88">${sig.tp}</span> &nbsp;|&nbsp;
-      <b>SL:</b> <span style="color:#ff4466">${sig.sl}</span><br/>
-      <span style="color:#94a3b8; font-size:11px;">Kalman Z: ${sig.kalman_z}σ | CVD: ${sig.cvd}% | Epochs: ${sig.trained_epochs}</span>
-    `;
+    document.getElementById('nexus-quant-hud').style.borderLeftColor = accent;
+    const actEl = document.getElementById('hud-action');
+    actEl.style.color = accent;
+    actEl.innerText = `${sig.action} ${sig.symbol}`;
 
-    // Vẽ trực tiếp 3 đường ENTRY, TP, SL lên biểu đồ nến Lightweight Charts nếu biến candleSeries tồn tại
+    document.getElementById('hud-conf').innerText = `PROB: ${sig.confidence}%`;
+    document.getElementById('hud-entry').innerText = sig.entry;
+    document.getElementById('hud-tp').innerText = sig.tp;
+    document.getElementById('hud-sl').innerText = sig.sl;
+    document.getElementById('hud-rr').innerText = `R:R 1:${sig.rr}`;
+    document.getElementById('hud-metrics').innerText = `Z:${sig.kalman_z}σ | CVD:${sig.cvd}%`;
+    document.getElementById('hud-epochs').innerText = `EP:${sig.trained_epochs}`;
+
     if (typeof candleSeries !== 'undefined' && candleSeries) {
       if (entryLine) candleSeries.removePriceLine(entryLine);
       if (tpLine) candleSeries.removePriceLine(tpLine);
@@ -1336,37 +1458,38 @@ async function updateTradeOverlay() {
 
       entryLine = candleSeries.createPriceLine({
         price: sig.entry,
-        color: '#00f0ff',
-        lineWidth: 2,
+        color: '#38bdf8',
+        lineWidth: 1,
         lineStyle: 0,
         axisLabelVisible: true,
         title: `ENTRY ${sig.action}`,
       });
       tpLine = candleSeries.createPriceLine({
         price: sig.tp,
-        color: '#00ff88',
+        color: '#10b981',
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: `TAKE PROFIT`,
+        title: `TP (+${sig.rr}R)`,
       });
       slLine = candleSeries.createPriceLine({
         price: sig.sl,
-        color: '#ff4466',
+        color: '#ef4444',
         lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: `STOP LOSS`,
+        title: `SL (-1R)`,
       });
     }
   } catch (err) {}
 }
 
-setInterval(updateTradeOverlay, 3000);
-setTimeout(updateTradeOverlay, 1500);
+setInterval(updateTradeOverlay, 2500);
+setTimeout(updateTradeOverlay, 800);
 </script>
 </body>
 </html>
+
 
 
 
