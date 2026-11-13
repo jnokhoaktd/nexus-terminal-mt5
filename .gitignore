@@ -3,3 +3,5 @@
 *.log
 *.vbs
 *.lnk
+
+cloudflared.exe
