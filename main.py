@@ -448,54 +448,63 @@ def close_position(ticket: int, request: Request):
         res = mt5.order_send(req_dict)
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
 
+
 # === DYNAMIC QUANT DECISION & CHART LEVELS ===
+from datetime import datetime as _dt
 from fastapi.responses import PlainTextResponse
-from quant_decision_engine import novelty_brain
+from quant_decision_engine import strict_brain
+
+def _fetch_real_mt5_bars(requested_symbol: str = "AUTO", count: int = 500):
+    if not mt5.terminal_info():
+        mt5.initialize()
+    if not mt5.terminal_info():
+        return None, None, 2, None
+
+    candidates = []
+    if requested_symbol and requested_symbol not in ("AUTO", "INITIALIZING...", "NO REAL DATA"):
+        candidates.append(requested_symbol)
+    for s_def in ["XAUUSD", "XAUUSDm", "GOLD", "BTCUSD", "BTCUSDm", "EURUSD", "EURUSDm"]:
+        if s_def not in candidates:
+            candidates.append(s_def)
+    for s in (mt5.symbols_get() or []):
+        if s.visible and s.name not in candidates:
+            candidates.append(s.name)
+
+    for sym in candidates[:25]:
+        mt5.symbol_select(sym, True)
+        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, count)
+        if rates is not None and len(rates) >= 80:
+            info = mt5.symbol_info(sym)
+            digits = info.digits if info else 2
+            last_ts = _dt.fromtimestamp(int(rates[-1]['time'])).strftime("%Y-%m-%d %H:%M")
+            return sym, rates, digits, last_ts
+    return None, None, 2, None
+
+@app.get("/api/quant/strict_audit")
+async def get_strict_quant_audit(symbol: str = "AUTO"):
+    sym, rates, digits, last_ts = _fetch_real_mt5_bars(symbol, 500)
+    if rates is None:
+        return {
+            "status": "NO_REAL_MT5_DATA",
+            "message": "Chua ket noi duoc MT5 hoac khong co du lieu nen that. Vui long mo phan mem MT5."
+        }
+    closes = [float(r['close']) for r in rates]
+    highs = [float(r['high']) for r in rates]
+    lows = [float(r['low']) for r in rates]
+    vols = [float(r['tick_volume']) for r in rates]
+    return strict_brain.infer_strict(sym, closes, highs, lows, vols, last_ts, digits)
+
+@app.post("/api/quant/strict_retrain")
+async def post_strict_retrain(symbol: str = "AUTO"):
+    sym, rates, _, _ = _fetch_real_mt5_bars(symbol, 1000)
+    if rates is None:
+        return {"status": "NO_REAL_MT5_DATA"}
+    closes = [float(r['close']) for r in rates]
+    highs = [float(r['high']) for r in rates]
+    lows = [float(r['low']) for r in rates]
+    vols = [float(r['tick_volume']) for r in rates]
+    return strict_brain.train_and_evaluate_strict(closes, highs, lows, vols, epochs=250)
 
 @app.get("/api/quant/export_csv", response_class=PlainTextResponse)
 async def export_quant_research_csv():
-    return novelty_brain.export_csv()
-
-# === BLOOMBERG TELEMETRY & FAULT-TOLERANT LAYER ===
-import time as _time
-from fastapi import Request
-from fastapi.responses import JSONResponse
-
-@app.middleware("http")
-async def nexus_zero_fault_middleware(request: Request, call_next):
-    t0 = _time.perf_counter()
-    try:
-        response = await call_next(request)
-        elapsed_ms = round((_time.perf_counter() - t0) * 1000, 1)
-        response.headers["X-Nexus-Latency-Ms"] = str(elapsed_ms)
-        return response
-    except Exception as exc:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "recovered",
-                "warning": str(exc),
-                "data": []
-            }
-        )
-
-@app.get("/api/terminal/telemetry")
-async def get_terminal_telemetry():
-    mt5_ok = False
-    account_mode = "SIMULATION"
-    try:
-        if not mt5.terminal_info():
-            mt5.initialize()
-        t_info = mt5.terminal_info()
-        a_info = mt5.account_info()
-        if t_info is not None:
-            mt5_ok = True
-            account_mode = "LIVE_MT5" if (a_info and a_info.trade_mode == 2) else "DEMO_MT5"
-    except Exception:
-        pass
-    return {
-        "status": "ONLINE",
-        "mt5_connected": mt5_ok,
-        "mode": account_mode,
-        "engine": "QUANT_V4_NOVELTY"
-    }
+    return strict_brain.export_csv()
