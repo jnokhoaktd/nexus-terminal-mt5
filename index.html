@@ -1663,8 +1663,103 @@
   setTimeout(() => window.runQuantEngine(true), 600);
 })();
 </script>
+<div id="nexus-candle-timer" style="
+  position: fixed;
+  right: 368px;
+  top: 52%;
+  transform: translateY(-50%);
+  z-index: 99999;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-right: 3px solid #38bdf8;
+  padding: 4px 8px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  text-align: right;
+  line-height: 1.35;
+">
+  <div id="timer-tf-label" style="font-size: 9px; color: #94a3b8; letter-spacing: 0.8px;">M5 CLOSE</div>
+  <div id="timer-countdown-val" style="font-size: 12px; color: #f8fafc;">--:--</div>
+</div>
+
+<script>
+(function() {
+  function detectTimeframeSeconds() {
+    // 1. Kiểm tra nút timeframe đang active hoặc select trên giao diện
+    const activeBtn = document.querySelector('button.active, .tf-btn.active, [data-tf].active, select');
+    let tfText = activeBtn ? (activeBtn.value || activeBtn.innerText || '') : '';
+    if (!tfText) {
+      const match = document.body.innerText.match(/\b(M1|M5|M15|M30|H1|H4|D1|1m|5m|15m|30m|1h|4h|1d)\b/);
+      tfText = match ? match[0] : 'M5';
+    }
+    tfText = tfText.trim().toUpperCase();
+    const map = {
+      'M1': 60, '1M': 60,
+      'M5': 300, '5M': 300,
+      'M15': 900, '15M': 900,
+      'M30': 1800, '30M': 1800,
+      'H1': 3600, '1H': 3600,
+      'H4': 14400, '4H': 14400,
+      'D1': 86400, '1D': 86400
+    };
+    return { label: tfText in map ? tfText : 'M5', sec: map[tfText] || 300 };
+  }
+
+  function alignPositionWithPriceScale() {
+    const timerBox = document.getElementById('nexus-candle-timer');
+    const chatPanel = document.querySelector('[class*="chat"], [id*="chat"], [class*="stream"], [class*="sidebar"]');
+    if (timerBox && chatPanel) {
+      const rect = chatPanel.getBoundingClientRect();
+      if (rect.left > 400) {
+        timerBox.style.right = (window.innerWidth - rect.left + 8) + 'px';
+      }
+    }
+  }
+
+  function updateCandleCountdown() {
+    const { label, sec } = detectTimeframeSeconds();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const remaining = sec - (nowSec % sec);
+
+    const hrs = Math.floor(remaining / 3600);
+    const mins = Math.floor((remaining % 3600) / 60);
+    const secs = remaining % 60;
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatted = hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+
+    const lblEl = document.getElementById('timer-tf-label');
+    const valEl = document.getElementById('timer-countdown-val');
+    const boxEl = document.getElementById('nexus-candle-timer');
+
+    if (lblEl) lblEl.innerText = `${label} CLOSE`;
+    if (valEl) {
+      valEl.innerText = formatted;
+      // Đổi màu cảnh báo cam/đỏ khi còn dưới 15 giây trước lúc đóng nến
+      if (remaining <= 15) {
+        valEl.style.color = '#fbbf24';
+        if (boxEl) boxEl.style.borderRightColor = '#fbbf24';
+      } else {
+        valEl.style.color = '#f8fafc';
+        if (boxEl) boxEl.style.borderRightColor = '#38bdf8';
+      }
+    }
+    alignPositionWithPriceScale();
+  }
+
+  setInterval(updateCandleCountdown, 1000);
+  updateCandleCountdown();
+  window.addEventListener('resize', alignPositionWithPriceScale);
+})();
+</script>
 </body>
 </html>
+
 
 
 
