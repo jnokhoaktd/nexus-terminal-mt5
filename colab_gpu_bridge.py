@@ -2,7 +2,7 @@
 import urllib.request
 import numpy as np
 
-COLAB_GPU_URL = "https://jewellery-declined-roller-logan.trycloudflare.com"
+COLAB_GPU_URL = ""
 
 def set_colab_url(url: str):
     global COLAB_GPU_URL
@@ -73,8 +73,7 @@ def query_colab_gpu_prediction(rates):
         upper_wick, lower_wick, sin_hour, cos_hour
     ]).astype(np.float32)
 
-    seq_48x12 = feat_matrix[-48:].tolist()
-    payload = json.dumps({"sequence": seq_48x12}).encode("utf-8")
+    payload = json.dumps({"sequence": feat_matrix[-48:].tolist()}).encode("utf-8")
     req = urllib.request.Request(
         f"{COLAB_GPU_URL}/predict",
         data=payload,

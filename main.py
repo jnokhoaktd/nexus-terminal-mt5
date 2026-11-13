@@ -450,6 +450,7 @@ def close_position(ticket: int, request: Request):
 
 
 
+
 # === DYNAMIC QUANT DECISION & CHART LEVELS ===
 import time as _time
 from datetime import datetime as _dt
@@ -486,7 +487,7 @@ def _fetch_real_mt5_bars(requested_symbol: str = "AUTO", count: int = 500):
 
     for sym in candidates[:25]:
         mt5.symbol_select(sym, True)
-        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M5, 0, count)
+        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M15, 0, count)
         if rates is not None and len(rates) >= 120:
             info = mt5.symbol_info(sym)
             digits = info.digits if info else 2
@@ -511,11 +512,8 @@ async def get_strict_quant_audit(symbol: str = "AUTO"):
     vols = [float(r['tick_volume']) for r in rates]
 
     colab_res = query_colab_gpu_prediction(rates)
-    colab_prob = None
-    gpu_auc = None
-    if colab_res and "prob_buy" in colab_res:
-        colab_prob = colab_res["prob_buy"]
-        gpu_auc = colab_res.get("oos_auc")
+    colab_prob = colab_res.get("prob_buy") if (colab_res and "prob_buy" in colab_res) else None
+    gpu_auc = colab_res.get("oos_auc") if (colab_res and "oos_auc" in colab_res) else None
 
     sig = strict_brain.infer_strict(sym, closes, highs, lows, vols, last_ts, digits, colab_prob=colab_prob)
     sig["colab_url"] = get_colab_url()
@@ -541,5 +539,4 @@ async def export_quant_research_csv():
 
 @app.get("/api/terminal/telemetry")
 async def get_terminal_telemetry():
-    mt5_ok = bool(mt5.terminal_info())
-    return {"status": "ONLINE", "mt5_connected": mt5_ok, "colab_url": get_colab_url()}
+    return {"status": "ONLINE", "mt5_connected": bool(mt5.terminal_info()), "colab_url": get_colab_url()}
