@@ -1279,8 +1279,95 @@
       await connectFeed();
     })();
   </script>
+<div id="nexus-trade-banner" style="position:fixed; bottom:18px; left:18px; z-index:9999; background:rgba(10,15,25,0.92); border:1px solid #00f0ff; border-radius:8px; padding:12px 16px; font-family:monospace; color:#fff; box-shadow:0 0 20px rgba(0,240,255,0.2); min-width:310px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+    <span style="color:#00f0ff; font-weight:bold; font-size:12px;">AI TRADE DECISION ENGINE</span>
+    <button onclick="retrainQuantBrain()" style="background:#00f0ff; color:#000; border:none; border-radius:4px; padding:3px 8px; font-weight:bold; font-size:11px; cursor:pointer;">TRAIN LẠI MODEL</button>
+  </div>
+  <div id="decision-action" style="font-size:18px; font-weight:bold; color:#00ff88;">ĐANG PHÂN TÍCH...</div>
+  <div id="decision-levels" style="font-size:12px; color:#cbd5e1; margin-top:4px; line-height:1.5;">
+    ENTRY: -- | TP: -- | SL: --
+  </div>
+</div>
+
+<script>
+let entryLine = null, tpLine = null, slLine = null;
+
+async function retrainQuantBrain() {
+  const btn = event.target;
+  btn.innerText = "ĐANG TRAIN...";
+  try {
+    const res = await fetch('/api/quant/retrain', { method: 'POST' });
+    const data = await res.json();
+    btn.innerText = "ĐÃ TRAIN (" + (data.epochs || 80) + " EPOCHS)";
+    setTimeout(() => { btn.innerText = "TRAIN LẠI MODEL"; }, 3000);
+    updateTradeOverlay();
+  } catch (e) {
+    btn.innerText = "TRAIN LẠI MODEL";
+  }
+}
+
+async function updateTradeOverlay() {
+  try {
+    const res = await fetch('/api/quant/decision');
+    if (!res.ok) return;
+    const data = await res.json();
+    const sig = data.signal;
+    if (!sig || !sig.entry) return;
+
+    const actEl = document.getElementById('decision-action');
+    const lvlEl = document.getElementById('decision-levels');
+    const isBuy = sig.action === 'BUY';
+
+    actEl.style.color = isBuy ? '#00ff88' : '#ff4466';
+    actEl.innerText = `${sig.action} ${sig.symbol} (${sig.confidence}%) — R:R 1:${sig.rr}`;
+    lvlEl.innerHTML = `
+      <b>ENTRY:</b> <span style="color:#ffffff">${sig.entry}</span> &nbsp;|&nbsp;
+      <b>TP:</b> <span style="color:#00ff88">${sig.tp}</span> &nbsp;|&nbsp;
+      <b>SL:</b> <span style="color:#ff4466">${sig.sl}</span><br/>
+      <span style="color:#94a3b8; font-size:11px;">Kalman Z: ${sig.kalman_z}σ | CVD: ${sig.cvd}% | Epochs: ${sig.trained_epochs}</span>
+    `;
+
+    // Vẽ trực tiếp 3 đường ENTRY, TP, SL lên biểu đồ nến Lightweight Charts nếu biến candleSeries tồn tại
+    if (typeof candleSeries !== 'undefined' && candleSeries) {
+      if (entryLine) candleSeries.removePriceLine(entryLine);
+      if (tpLine) candleSeries.removePriceLine(tpLine);
+      if (slLine) candleSeries.removePriceLine(slLine);
+
+      entryLine = candleSeries.createPriceLine({
+        price: sig.entry,
+        color: '#00f0ff',
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `ENTRY ${sig.action}`,
+      });
+      tpLine = candleSeries.createPriceLine({
+        price: sig.tp,
+        color: '#00ff88',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `TAKE PROFIT`,
+      });
+      slLine = candleSeries.createPriceLine({
+        price: sig.sl,
+        color: '#ff4466',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `STOP LOSS`,
+      });
+    }
+  } catch (err) {}
+}
+
+setInterval(updateTradeOverlay, 3000);
+setTimeout(updateTradeOverlay, 1500);
+</script>
 </body>
 </html>
+
 
 
 

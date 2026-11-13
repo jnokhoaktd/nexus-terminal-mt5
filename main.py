@@ -447,3 +447,55 @@ def close_position(ticket: int, request: Request):
         req_dict["type_filling"] = mt5.ORDER_FILLING_FOK
         res = mt5.order_send(req_dict)
     return {"status": "OK" if res.retcode == mt5.TRADE_RETCODE_DONE else "ERR"}
+
+# === DYNAMIC QUANT DECISION & CHART LEVELS ===
+from quant_decision_engine import brain as dynamic_brain
+
+@app.get("/api/quant/decision")
+async def get_quant_decision(symbol: str = "XAUUSD"):
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 200)
+        if rates is None or len(rates) < 30:
+            # Thử tìm symbol khả dụng nếu tài khoản dùng hậu tố (vd: XAUUSDm, XAUUSD.a)
+            syms = mt5.symbols_get()
+            for s in (syms or []):
+                if "XAU" in s.name or "BTC" in s.name or "EURUSD" in s.name:
+                    symbol = s.name
+                    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 200)
+                    if rates is not None and len(rates) >= 30:
+                        break
+        if rates is not None and len(rates) >= 30:
+            closes = [float(r['close']) for r in rates]
+            highs = [float(r['high']) for r in rates]
+            lows = [float(r['low']) for r in rates]
+            vols = [float(r['tick_volume']) for r in rates]
+            info = mt5.symbol_info(symbol)
+            digits = info.digits if info else 2
+            sig, msgs = dynamic_brain.infer_and_plan(symbol, closes, highs, lows, vols, digits)
+            return {"signal": sig, "messages": msgs}
+    except Exception as e:
+        pass
+    return {"signal": dynamic_brain.active_signal, "messages": []}
+
+@app.post("/api/quant/retrain")
+async def retrain_quant_model(symbol: str = "XAUUSD"):
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 1000)
+        if rates is None or len(rates) < 50:
+            syms = mt5.symbols_get()
+            for s in (syms or []):
+                if "XAU" in s.name or "BTC" in s.name or "EURUSD" in s.name:
+                    symbol = s.name
+                    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, 1000)
+                    if rates is not None and len(rates) >= 50:
+                        break
+        if rates is not None and len(rates) >= 50:
+            closes = [float(r['close']) for r in rates]
+            highs = [float(r['high']) for r in rates]
+            lows = [float(r['low']) for r in rates]
+            vols = [float(r['tick_volume']) for r in rates]
+            res = dynamic_brain.train_on_history(closes, highs, lows, vols, epochs=120)
+            return res
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+    return {"status": "no_mt5_data"}
