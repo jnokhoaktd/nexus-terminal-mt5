@@ -11,8 +11,9 @@ from pydantic import BaseModel
 from quant_modules.research import run_vector_backtest, kalman_filter_1d, garch_1_1_volatility
 from quant_modules.risk import QuantRiskManager
 from quant_modules.trader import AutonomousQuantTrader
+from quant_modules.colab_bridge import ColabDeepQuantBridge, build_footprint_profile
 
-app = FastAPI(title="NEXUS // 3D MULTI-TASK QUANT ENGINE & AI WAR ROOM")
+app = FastAPI(title="NEXUS // BLOOMBERG-STYLE QUANT & COLAB DL TERMINAL")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +33,7 @@ TIMEFRAME_MAP = {
 
 risk_manager = QuantRiskManager()
 quant_bot = AutonomousQuantTrader(risk_manager)
+colab_bridge = ColabDeepQuantBridge()
 
 def ensure_mt5() -> bool:
     if mt5.terminal_info() is not None:
@@ -77,6 +79,9 @@ class BotConfigRequest(BaseModel):
     sl_points: int = 300
     tp_points: int = 600
 
+class ColabConnectRequest(BaseModel):
+    url: str
+
 @app.get("/")
 def serve_ui():
     return FileResponse("index.html")
@@ -88,6 +93,12 @@ def get_watchlist():
     syms = mt5.symbols_get()
     visible = [s.name for s in syms if s.visible][:25] if syms else []
     return {"connected": True, "symbols": visible or ["XAUUSD"]}
+
+@app.post("/api/colab/connect")
+def connect_colab(req: ColabConnectRequest):
+    ok, msg = colab_bridge.set_url(req.url)
+    quant_bot.push_chat("QUANT DEV", "#38bdf8", msg)
+    return {"connected": ok, "msg": msg}
 
 @app.get("/api/history/{symbol}/{tf}")
 def get_historical_candles(symbol: str, tf: str, count: int = 400):
@@ -107,31 +118,35 @@ def get_historical_candles(symbol: str, tf: str, count: int = 400):
         volumes.append({
             "time": t,
             "value": float(r["tick_volume"]),
-            "color": "rgba(0, 210, 106, 0.4)" if c >= o else "rgba(255, 59, 48, 0.4)"
+            "color": "rgba(16, 185, 129, 0.35)" if c >= o else "rgba(239, 68, 68, 0.35)"
         })
     return {"symbol": real_sym, "candles": candles, "volumes": volumes}
 
-@app.get("/api/quant/surface/{symbol}/{tf}")
-def get_3d_quant_surface(symbol: str, tf: str, model: str = "orderflow"):
+@app.get("/api/quant/analytics/{symbol}/{tf}")
+def get_institutional_analytics(symbol: str, tf: str, model: str = "orderflow"):
     """
-    Multi-Task 3D Quant Surface (32x32 High-Res Mesh):
-    - model='orderflow': Orderflow Imbalance & Liquidity Depth Surface
-    - model='kalman': Kalman Filter Latent Fair-Value & Innovation Manifold
-    - model='garch': GARCH(1,1) Conditional Volatility & Tail-Risk Surface
+    Trả về đồng thời:
+    1. Ma trận bề mặt 3D (32x32) cho 3 mô hình: Orderflow, Kalman, GARCH(1,1)
+    2. Cấu trúc Footprint Bid x Ask & Point of Control (POC)
+    3. Dự báo Deep Learning từ Google Colab GPU (hoặc Local Proxy)
     """
     if not ensure_mt5():
         raise HTTPException(status_code=503, detail="MT5 chưa kết nối")
     real_sym = resolve_symbol(symbol)
     mt5_tf = TIMEFRAME_MAP.get(tf.upper(), mt5.TIMEFRAME_M5)
-    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 32)
+    rates = mt5.copy_rates_from_pos(real_sym, mt5_tf, 0, 64)
     if rates is None or len(rates) < 32:
-        raise HTTPException(status_code=404, detail="Không đủ dữ liệu dựng 3D")
+        raise HTTPException(status_code=404, detail="Không đủ dữ liệu phân tích")
 
-    opens = np.array([float(r["open"]) for r in rates])
-    closes = np.array([float(r["close"]) for r in rates])
-    highs = np.array([float(r["high"]) for r in rates])
-    lows = np.array([float(r["low"]) for r in rates])
-    vols = np.array([float(r["tick_volume"]) for r in rates])
+    raw_candles = [
+        {"time": int(r["time"]), "open": float(r["open"]), "high": float(r["high"]),
+         "low": float(r["low"]), "close": float(r["close"]), "volume": float(r["tick_volume"])}
+        for r in rates
+    ]
+    sub = raw_candles[-32:]
+    opens = np.array([c["open"] for c in sub])
+    closes = np.array([c["close"] for c in sub])
+    vols = np.array([c["volume"] for c in sub])
 
     k_est, kalman_z = kalman_filter_1d(closes)
     garch_vol, garch_ratio = garch_1_1_volatility(closes)
@@ -150,31 +165,39 @@ def get_3d_quant_surface(symbol: str, tf: str, model: str = "orderflow"):
             v = (j / (size - 1)) * 2.0 - 1.0
 
             if model == "kalman":
-                # Bề mặt đa tạp Kalman: Đỉnh thể hiện độ lệch khỏi Fair Value
-                ridge = np.exp(-3.0 * ((v - np.tanh(k_residual[i] * 0.6)) ** 2))
-                h = (k_residual[i] * 2.2) * ridge + np.cos(u * 3.0) * 0.4
+                ridge = np.exp(-3.2 * ((v - np.tanh(k_residual[i] * 0.55)) ** 2))
+                h = (k_residual[i] * 1.9) * ridge + np.cos(u * 2.8) * 0.35
             elif model == "garch":
-                # Phễu rủi ro đuôi GARCH(1,1): Hai biên vểnh cao khi biến động tăng đột biến
                 vol_norm = garch_padded[i] / (np.max(garch_padded) + 1e-9)
-                tail_wing = (v ** 2) * (1.5 + vol_norm * 3.5)
-                center_dip = -np.exp(-4.0 * (v ** 2)) * 1.4
-                h = tail_wing + center_dip + np.sin(i * 0.4) * 0.3
+                tail_wing = (v ** 2) * (1.2 + vol_norm * 3.0)
+                center_dip = -np.exp(-4.0 * (v ** 2)) * 1.1
+                h = tail_wing + center_dip + np.sin(i * 0.35) * 0.25
             else:
-                # Mặc định: Orderflow Imbalance & Liquidity Depth
                 pocket = np.exp(-2.8 * (v ** 2))
-                imbalance_wave = delta_proxy[i] * 3.4 * pocket + np.sin(j * 0.45 + i * 0.25) * 0.55
-                h = imbalance_wave + (norm_vols[i] * 1.6 * pocket)
+                imbalance_wave = delta_proxy[i] * 2.8 * pocket + np.sin(j * 0.4 + i * 0.25) * 0.4
+                h = imbalance_wave + (norm_vols[i] * 1.4 * pocket)
 
-            row.append(round(float(np.clip(h, -3.5, 4.2)), 3))
+            row.append(round(float(np.clip(h, -3.0, 3.5)), 3))
         grid.append(row)
+
+    footprint = build_footprint_profile(raw_candles, bins=16)
+    dl_pred = colab_bridge.infer(raw_candles)
 
     return {
         "symbol": real_sym,
         "tf": tf,
         "model": model,
         "grid": grid,
-        "kalman_z": round(kalman_z, 2),
-        "garch_ratio": round(garch_ratio, 2)
+        "metrics": {
+            "spot": round(float(closes[-1]), 2),
+            "kalman_fv": round(float(k_est[-1]), 2),
+            "kalman_z": round(kalman_z, 2),
+            "garch_ratio": round(garch_ratio, 2),
+            "poc": footprint["poc_price"],
+            "net_delta": footprint["total_delta"]
+        },
+        "footprint": footprint["levels"],
+        "dl_prediction": dl_pred
     }
 
 @app.post("/api/bot/config")
@@ -189,9 +212,9 @@ def configure_quant_bot(cfg: BotConfigRequest):
     risk_manager.max_daily_loss_pct = cfg.max_dd_pct
 
     if cfg.enabled:
-        quant_bot.push_chat("QUANT DEV", "#e040fb", f"Khởi động cụm Multi-Task AI trên {real_sym} [{cfg.tf}]. Kalman + GARCH + Orderflow đồng bộ.")
-        quant_bot.push_chat("QUANT RESEARCH", "#00e5ff", f"Đang trích xuất trạng thái Kalman Fair-Value và phễu rủi ro GARCH(1,1)...")
-        quant_bot.push_chat("QUANT RISK", "#ff9900", f"Lá chắn Prop Firm kích hoạt: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
+        quant_bot.push_chat("QUANT DEV", "#38bdf8", f"Khởi động cụm 4 AI Agent trên {real_sym} [{cfg.tf}]. Đồng bộ Colab DL Bridge.")
+        quant_bot.push_chat("QUANT RESEARCH", "#2dd4bf", f"Đang trích xuất Kalman Fair-Value, GARCH(1,1) và Footprint POC...")
+        quant_bot.push_chat("QUANT RISK", "#f59e0b", f"Risk Gatekeeper kích hoạt: Risk/lệnh = {cfg.risk_pct}%, Daily DD Limit = {cfg.max_dd_pct}%.")
     else:
         quant_bot.push_chat("QUANT TRADER", "#94a3b8", "Đã tạm dừng Bot AI tự động.")
 
@@ -221,7 +244,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
     cvd, buy_vol_total, sell_vol_total = 0.0, 0.0, 0.0
 
     if not quant_bot.agent_chat:
-        quant_bot.push_chat("QUANT DEV", "#e040fb", "Cụm Multi-Task 3D Engine (Orderflow + Kalman + GARCH) đã sẵn sàng.")
+        quant_bot.push_chat("QUANT DEV", "#38bdf8", "NEXUS Institutional Quant Desk & Colab Deep Learning Bridge đã sẵn sàng.")
 
     try:
         while True:
@@ -246,7 +269,7 @@ async def websocket_stream(websocket: WebSocket, symbol: str, tf: str):
                 latest_vol = {
                     "time": t,
                     "value": float(r["tick_volume"]),
-                    "color": "rgba(0, 210, 106, 0.4)" if c >= o else "rgba(255, 59, 48, 0.4)"
+                    "color": "rgba(16, 185, 129, 0.35)" if c >= o else "rgba(239, 68, 68, 0.35)"
                 }
 
             tape_event = None
@@ -366,7 +389,7 @@ def place_order(req: OrderRequest):
 
     if res.retcode != mt5.TRADE_RETCODE_DONE:
         return {"status": "ERR", "code": res.retcode, "msg": res.comment}
-    quant_bot.push_chat("QUANT TRADER", "#ff9900", f"Lệnh thủ công #{res.order}: {req.order_type} {volume} lot {real_sym} @ {res.price}.")
+    quant_bot.push_chat("QUANT TRADER", "#f59e0b", f"Lệnh thủ công #{res.order}: {req.order_type} {volume} lot {real_sym} @ {res.price}.")
     return {"status": "OK", "ticket": res.order, "vol": volume, "price": res.price}
 
 @app.post("/api/breakeven/{ticket}")

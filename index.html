@@ -2,19 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>NEXUS INSTITUTIONAL // 3D MULTI-TASK QUANT ENGINE</title>
+  <title>NEXUS INSTITUTIONAL // BLOOMBERG QUANT & COLAB DL</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
-      --bg-0: #05070b;
-      --bg-1: #0b0f17;
-      --bg-2: #121824;
+      --bg-0: #070a0f;
+      --bg-1: #0d121a;
+      --bg-2: #141b26;
       --border: #1e293b;
-      --amber: #ff9900;
-      --cyan: #00e5ff;
-      --green: #00d26a;
-      --red: #ff3b30;
+      --amber: #f59e0b;
+      --cyan: #38bdf8;
+      --teal: #14b8a6;
+      --green: #10b981;
+      --red: #ef4444;
       --text: #e2e8f0;
       --muted: #64748b;
     }
@@ -22,7 +23,7 @@
     input { user-select: text; }
     body { background: var(--bg-0); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; }
 
-    /* TOP BAR */
+    /* TOP COMMAND BAR */
     .topbar {
       background: var(--bg-2); border-bottom: 1px solid var(--amber);
       height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; flex-shrink: 0;
@@ -30,16 +31,16 @@
     .brand { background: var(--amber); color: #000; font-weight: 900; padding: 2px 7px; letter-spacing: 0.6px; }
     .cmd-box { display: flex; align-items: center; gap: 5px; }
     .sym-input {
-      background: #000; border: 1px solid var(--amber); color: var(--amber);
+      background: #05070b; border: 1px solid var(--amber); color: var(--amber);
       padding: 3px 7px; width: 90px; font-weight: bold; text-transform: uppercase;
     }
     .btn-ui {
       background: var(--bg-1); border: 1px solid var(--border); color: var(--text);
       padding: 3px 7px; cursor: pointer; font-weight: bold; font-size: 11px;
     }
-    .btn-ui:hover, .btn-ui.active { border-color: var(--amber); color: var(--amber); background: #182234; }
-    .mode-btn { border-color: var(--cyan); color: var(--cyan); }
-    .mode-btn.active { background: var(--cyan); color: #000; }
+    .btn-ui:hover, .btn-ui.active { border-color: var(--amber); color: var(--amber); background: #1a2332; }
+    .mode-btn { border-color: #334155; color: #cbd5e1; }
+    .mode-btn.active { background: var(--amber); color: #000; border-color: var(--amber); }
 
     .telemetry { display: flex; gap: 10px; align-items: center; font-size: 11px; }
     .telemetry span { color: var(--muted); }
@@ -71,8 +72,8 @@
       font-size: 13px; font-weight: bold; border-radius: 4px; flex-shrink: 0;
     }
     .tool-btn:hover { background: #182234; color: var(--text); }
-    .tool-btn.active { background: #1c2940; border-color: var(--cyan); color: var(--cyan); }
-    .tool-btn.magnet-on { background: rgba(255, 153, 0, 0.15); border-color: var(--amber); color: var(--amber); }
+    .tool-btn.active { background: #1c2940; border-color: var(--amber); color: var(--amber); }
+    .tool-btn.magnet-on { background: rgba(245, 158, 11, 0.15); border-color: var(--amber); color: var(--amber); }
     .tool-sep { width: 22px; height: 1px; background: var(--border); margin: 2px 0; flex-shrink: 0; }
 
     .color-trigger { width: 24px; height: 24px; border-radius: 4px; border: 1px solid #475569; cursor: pointer; flex-shrink: 0; }
@@ -90,38 +91,83 @@
     #draw-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
     #quant-view { width: 100%; height: 100%; display: none; padding: 12px; overflow-y: auto; flex-direction: column; gap: 10px; background: var(--bg-1); }
 
-    /* 3D QUANT SURFACE & AI WAR ROOM VIEW */
-    #surface3d-view { width: 100%; height: 100%; display: none; grid-template-columns: 1.5fr 1fr; background: #04070d; }
-    #three-canvas-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; border-right: 1px solid var(--border); cursor: grab; }
+    /* ==========================================================================
+       BLOOMBERG INSTITUTIONAL 3D ANALYTICS & FOOTPRINT VIEW
+       ========================================================================== */
+    #surface3d-view {
+      width: 100%; height: 100%; display: none; grid-template-columns: 1.55fr 1fr; background: #070a0f;
+    }
+    #three-canvas-wrap {
+      position: relative; width: 100%; height: 100%; overflow: hidden; border-right: 1px solid var(--border); cursor: grab;
+    }
     #three-canvas-wrap:active { cursor: grabbing; }
-    .surface-hud {
-      position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(7, 11, 20, 0.9);
-      border: 1px solid #26354d; border-left: 3px solid #00f5d4; padding: 8px 10px; font-size: 11px; border-radius: 4px;
+
+    /* Bloomberg Function Header */
+    .bbg-header {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+      background: rgba(13, 18, 26, 0.94); border-bottom: 1px solid var(--border);
+      padding: 6px 10px; display: flex; justify-content: space-between; align-items: center;
     }
-    .model-tabs { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+    .bbg-tag { background: #1e293b; color: var(--amber); padding: 2px 6px; font-weight: bold; font-size: 10px; border: 1px solid #334155; }
+    .model-tabs { display: flex; gap: 4px; }
     .m-btn {
-      background: #0f172a; border: 1px solid #334155; color: #94a3b8;
-      padding: 3px 7px; font-size: 10px; cursor: pointer; font-weight: bold; border-radius: 3px;
+      background: #0b0f17; border: 1px solid #283548; color: #94a3b8;
+      padding: 3px 8px; font-size: 10px; cursor: pointer; font-weight: bold;
     }
-    .m-btn:hover { border-color: #00f5d4; color: #fff; }
-    .m-btn.active { background: linear-gradient(90deg, #00f5d4, #00bbf9); color: #000; border-color: transparent; }
+    .m-btn:hover { border-color: var(--amber); color: #fff; }
+    .m-btn.active { background: var(--amber); color: #000; border-color: var(--amber); }
 
-    .legend-bar {
-      position: absolute; bottom: 10px; left: 10px; z-index: 10; background: rgba(7, 11, 20, 0.85);
-      border: 1px solid #1e293b; padding: 4px 8px; font-size: 10px; display: flex; align-items: center; gap: 6px; border-radius: 3px;
+    /* Bloomberg Quantitative Telemetry Matrix Overlay */
+    .bbg-matrix-box {
+      position: absolute; bottom: 10px; left: 10px; z-index: 10;
+      background: rgba(13, 18, 26, 0.92); border: 1px solid var(--border);
+      padding: 6px 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 10px;
     }
-    .grad-pill { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #00f5d4, #00bbf9, #fee440, #ff6b35, #ff006e); }
+    .bbg-matrix-box div small { color: var(--muted); display: block; font-size: 9px; }
+    .bbg-matrix-box div b { color: #f8fafc; font-size: 11px; }
 
-    .war-room-panel { display: flex; flex-direction: column; background: var(--bg-1); overflow: hidden; }
-    .agent-feed { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .bbg-scale-bar {
+      position: absolute; bottom: 10px; right: 10px; z-index: 10;
+      background: rgba(13, 18, 26, 0.92); border: 1px solid var(--border);
+      padding: 5px 8px; font-size: 9px; color: var(--muted); display: flex; align-items: center; gap: 6px;
+    }
+    .bbg-grad { width: 85px; height: 7px; background: linear-gradient(90deg, #1d4ed8, #0d9488, #f59e0b, #dc2626); }
+
+    /* Right Split inside Analytics: Footprint + Colab DL + War Room */
+    .analytics-side { display: flex; flex-direction: column; background: var(--bg-1); overflow: hidden; }
+    .sub-tabs { display: flex; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+    .sub-tab-btn {
+      flex: 1; padding: 6px; background: transparent; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); font-size: 10px; font-weight: bold; cursor: pointer;
+    }
+    .sub-tab-btn.active { color: var(--amber); border-bottom-color: var(--amber); background: #161f2e; }
+
+    /* Footprint Table */
+    .fp-box { flex: 1; overflow-y: auto; padding: 6px; display: none; flex-direction: column; gap: 3px; }
+    .fp-row {
+      display: grid; grid-template-columns: 65px 1fr 65px; align-items: center; gap: 6px;
+      font-size: 10px; padding: 2px 4px; border-bottom: 1px solid #131a26;
+    }
+    .fp-row.poc { background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.4); }
+    .fp-bar-wrap { display: flex; height: 10px; background: #070a0f; overflow: hidden; border-radius: 2px; }
+
+    /* Colab DL & War Room */
+    .war-room-box { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .colab-card {
+      background: #080c13; border: 1px solid #1e293b; border-left: 3px solid var(--cyan); padding: 7px; font-size: 11px;
+    }
+    .colab-input-row { display: flex; gap: 4px; margin-top: 5px; }
+    .colab-input-row input {
+      flex: 1; background: #05070b; border: 1px solid #334155; color: var(--cyan); padding: 3px 6px; font-size: 10px;
+    }
     .chat-bubble {
-      background: #070b12; border: 1px solid #162032; padding: 6px 8px; border-radius: 4px; font-size: 11px; line-height: 1.4;
+      background: #080c13; border: 1px solid #162032; padding: 6px 8px; border-radius: 3px; font-size: 11px; line-height: 1.35;
     }
-    .chat-meta { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; margin-bottom: 3px; }
+    .chat-meta { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; margin-bottom: 2px; }
 
     .hud-bar {
       position: absolute; top: 8px; left: 10px; z-index: 10; display: flex; gap: 8px; align-items: center;
-      background: rgba(5, 7, 11, 0.85); padding: 4px 8px; border-left: 2px solid var(--amber); border: 1px solid var(--border);
+      background: rgba(7, 10, 15, 0.88); padding: 4px 8px; border-left: 2px solid var(--amber); border: 1px solid var(--border);
     }
     .hud-btn { background: #161f30; border: 1px solid #2b3a55; color: var(--cyan); padding: 2px 6px; font-size: 10px; cursor: pointer; font-weight: bold; }
 
@@ -151,10 +197,10 @@
     .pillar-row { display: flex; justify-content: space-between; font-size: 11px; border-bottom: 1px solid #111827; padding-bottom: 3px; }
     .pillar-row span:first-child { color: var(--muted); }
     .btn-bot {
-      width: 100%; padding: 7px; font-weight: 900; cursor: pointer; border: 1px solid var(--cyan);
-      background: rgba(0, 229, 255, 0.12); color: var(--cyan); letter-spacing: 0.5px;
+      width: 100%; padding: 7px; font-weight: 900; cursor: pointer; border: 1px solid var(--amber);
+      background: rgba(245, 158, 11, 0.12); color: var(--amber); letter-spacing: 0.5px;
     }
-    .btn-bot.running { background: var(--amber); color: #000; border-color: var(--amber); }
+    .btn-bot.running { background: var(--amber); color: #000; }
 
     .resizer-v { width: 4px; background: var(--border); cursor: col-resize; flex-shrink: 0; }
     .resizer-v:hover, .resizer-v.dragging { background: var(--amber); }
@@ -200,7 +246,7 @@
       </div>
       <div style="display:flex; gap:3px; margin-left:8px;">
         <button class="btn-ui mode-btn active" id="btnModeChart" onclick="switchView('chart')">CHART</button>
-        <button class="btn-ui mode-btn" id="btnMode3D" onclick="switchView('3d')">3D MULTI-MODEL</button>
+        <button class="btn-ui mode-btn" id="btnMode3D" onclick="switchView('3d')">VOLS 3D & COLAB</button>
         <button class="btn-ui mode-btn" id="btnModeQuant" onclick="switchView('quant')">QUANT BT</button>
       </div>
     </div>
@@ -222,20 +268,20 @@
       <span style="cursor:pointer;" onclick="toggleColorPopover()">[X]</span>
     </div>
     <div class="swatch-grid">
-      <div class="swatch" style="background:#ff9900;" onclick="pickDrawColor('#ff9900')"></div>
-      <div class="swatch" style="background:#00e5ff;" onclick="pickDrawColor('#00e5ff')"></div>
-      <div class="swatch" style="background:#00d26a;" onclick="pickDrawColor('#00d26a')"></div>
-      <div class="swatch" style="background:#ff3b30;" onclick="pickDrawColor('#ff3b30')"></div>
+      <div class="swatch" style="background:#f59e0b;" onclick="pickDrawColor('#f59e0b')"></div>
+      <div class="swatch" style="background:#38bdf8;" onclick="pickDrawColor('#38bdf8')"></div>
+      <div class="swatch" style="background:#10b981;" onclick="pickDrawColor('#10b981')"></div>
+      <div class="swatch" style="background:#ef4444;" onclick="pickDrawColor('#ef4444')"></div>
       <div class="swatch" style="background:#ffffff;" onclick="pickDrawColor('#ffffff')"></div>
-      <div class="swatch" style="background:#ffeb3b;" onclick="pickDrawColor('#ffeb3b')"></div>
-      <div class="swatch" style="background:#e040fb;" onclick="pickDrawColor('#e040fb')"></div>
-      <div class="swatch" style="background:#2979ff;" onclick="pickDrawColor('#2979ff')"></div>
-      <div class="swatch" style="background:#ff6d00;" onclick="pickDrawColor('#ff6d00')"></div>
+      <div class="swatch" style="background:#eab308;" onclick="pickDrawColor('#eab308')"></div>
+      <div class="swatch" style="background:#a855f7;" onclick="pickDrawColor('#a855f7')"></div>
+      <div class="swatch" style="background:#3b82f6;" onclick="pickDrawColor('#3b82f6')"></div>
+      <div class="swatch" style="background:#f97316;" onclick="pickDrawColor('#f97316')"></div>
       <div class="swatch" style="background:#94a3b8;" onclick="pickDrawColor('#94a3b8')"></div>
     </div>
     <div class="custom-color-row">
       <span>Custom HEX:</span>
-      <input type="color" id="customColorInput" value="#ff9900" onchange="pickDrawColor(this.value)">
+      <input type="color" id="customColorInput" value="#f59e0b" onchange="pickDrawColor(this.value)">
     </div>
   </div>
 
@@ -269,7 +315,7 @@
           <button class="tool-btn" id="tool-measure" onclick="setDrawTool('measure')" title="Measure">📏</button>
           <button class="tool-btn" id="tool-text" onclick="setDrawTool('text')" title="Text Note">T</button>
           <div class="tool-sep"></div>
-          <div class="color-trigger" id="active-color-btn" style="background:#ff9900;" onclick="toggleColorPopover()" title="Đổi màu"></div>
+          <div class="color-trigger" id="active-color-btn" style="background:#f59e0b;" onclick="toggleColorPopover()" title="Đổi màu"></div>
           <div class="tool-sep"></div>
           <button class="tool-btn" id="btn-magnet" onclick="toggleMagnet()" title="Magnet OHLC">🧲</button>
           <button class="tool-btn" onclick="undoDrawing()" title="Undo (Ctrl+Z)">↶</button>
@@ -281,33 +327,70 @@
           <div id="chart-view">
             <div class="hud-bar">
               <span id="hud-ohlc" style="font-size:11px;">Loading...</span>
-              <span id="draw-hint" style="color:var(--cyan); font-size:10px; display:none;"></span>
+              <span id="draw-hint" style="color:var(--amber); font-size:10px; display:none;"></span>
               <button class="hud-btn" onclick="resetChartScale()">AUTO FIT</button>
             </div>
             <canvas id="draw-canvas"></canvas>
           </div>
 
-          <!-- VIEW 2: 3D MULTI-MODEL QUANT ENGINE + MULTI-AGENT AI WAR ROOM -->
+          <!-- VIEW 2: BLOOMBERG VOLS 3D SURFACE + FOOTPRINT + COLAB DL -->
           <div id="surface3d-view">
             <div id="three-canvas-wrap">
-              <div class="surface-hud">
-                <div style="color:#00f5d4; font-weight:bold;">NEXUS 3D MULTI-TASK QUANT ENGINE</div>
-                <div id="surf-meta" style="color:#cbd5e1; margin-top:2px;">Kalman Z: -- | GARCH Ratio: --</div>
+              <div class="bbg-header">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="bbg-tag">VOLS &lt;GO&gt;</span>
+                  <span id="bbg-sym-lbl" style="font-weight:bold; color:#f8fafc;">XAUUSD M5</span>
+                </div>
                 <div class="model-tabs">
-                  <button class="m-btn active" id="m-orderflow" onclick="switch3DModel('orderflow')">1. ORDERFLOW IMBALANCE</button>
-                  <button class="m-btn" id="m-kalman" onclick="switch3DModel('kalman')">2. KALMAN MANIFOLD</button>
-                  <button class="m-btn" id="m-garch" onclick="switch3DModel('garch')">3. GARCH(1,1) TAIL RISK</button>
+                  <button class="m-btn active" id="m-orderflow" onclick="switch3DModel('orderflow')">ORDERFLOW</button>
+                  <button class="m-btn" id="m-kalman" onclick="switch3DModel('kalman')">KALMAN</button>
+                  <button class="m-btn" id="m-garch" onclick="switch3DModel('garch')">GARCH(1,1)</button>
+                  <button class="m-btn" onclick="reset3DCamera()" title="Đặt lại góc nhìn">↺</button>
                 </div>
               </div>
-              <div class="legend-bar">
-                <span style="color:#00f5d4;">LOW / ABSORB</span>
-                <div class="grad-pill"></div>
-                <span style="color:#ff006e;">PEAK / IMBALANCE</span>
+
+              <div class="bbg-matrix-box">
+                <div><small>SPOT / KALMAN FV</small><b id="m-spot-fv">-- / --</b></div>
+                <div><small>KALMAN Z / GARCH</small><b id="m-kz-garch">-- / --</b></div>
+                <div><small>FOOTPRINT POC / Δ</small><b id="m-poc-delta" style="color:var(--amber);">-- / --</b></div>
+              </div>
+
+              <div class="bbg-scale-bar">
+                <span>ABSORB</span>
+                <div class="bbg-grad"></div>
+                <span>IMBALANCE</span>
               </div>
             </div>
-            <div class="war-room-panel">
-              <div class="p-head"><span>MULTI-AGENT AI WAR ROOM (LIVE DEBATE)</span><span>4 AGENTS</span></div>
-              <div class="agent-feed" id="agent-feed"></div>
+
+            <!-- RIGHT PANEL: COLAB DL BRIDGE + FOOTPRINT + AI WAR ROOM -->
+            <div class="analytics-side">
+              <div class="sub-tabs">
+                <button class="sub-tab-btn active" id="tab-warroom" onclick="switchSideTab('warroom')">AI WAR ROOM & COLAB DL</button>
+                <button class="sub-tab-btn" id="tab-footprint" onclick="switchSideTab('footprint')">FOOTPRINT (BID×ASK)</button>
+              </div>
+
+              <!-- TAB A: COLAB GPU + 4 AI AGENTS -->
+              <div class="war-room-box" id="panel-warroom">
+                <div class="colab-card">
+                  <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:10px;">
+                    <span style="color:var(--cyan);">GOOGLE COLAB GPU DEEP LEARNING</span>
+                    <span id="dl-source-badge" style="color:var(--amber);">LOCAL_PROXY</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:11px;">
+                    <span>UP: <b id="dl-up" style="color:var(--green);">50.0%</b> | DN: <b id="dl-dn" style="color:var(--red);">50.0%</b></span>
+                    <span id="dl-regime" style="color:var(--muted);">NEUTRAL</span>
+                  </div>
+                  <div class="colab-input-row">
+                    <input type="text" id="colabUrlInput" placeholder="Dán Ngrok URL từ Google Colab...">
+                    <button class="btn-ui" style="border-color:var(--cyan); color:var(--cyan);" onclick="linkColabServer()">LINK</button>
+                  </div>
+                </div>
+
+                <div id="agent-feed" style="display:flex; flex-direction:column; gap:5px;"></div>
+              </div>
+
+              <!-- TAB B: FOOTPRINT PROFILE -->
+              <div class="fp-box" id="panel-footprint"></div>
             </div>
           </div>
 
@@ -408,26 +491,48 @@
     let candlesMap = new Map();
     let botRunning = false;
 
-    // --- THREE.JS VIBRANT NEON 3D QUANT ENGINE ---
+    // --- BLOOMBERG INSTITUTIONAL 3D SURFACE (SUBTLE THERMAL PALETTE) ---
     let scene3D, camera3D, renderer3D, mesh3D, wire3D;
     let isDragging3D = false, prevMouse3D = { x: 0, y: 0 };
-    let rotX = 0.62, rotY = -0.55, camDist = 25;
+    let rotX = 0.58, rotY = -0.65, camDist = 24;
+
+    function reset3DCamera() {
+      rotX = 0.58; rotY = -0.65; camDist = 24;
+    }
+
+    function switchSideTab(tab) {
+      document.getElementById("panel-warroom").style.display = tab === "warroom" ? "flex" : "none";
+      document.getElementById("panel-footprint").style.display = tab === "footprint" ? "flex" : "none";
+      document.getElementById("tab-warroom").classList.toggle("active", tab === "warroom");
+      document.getElementById("tab-footprint").classList.toggle("active", tab === "footprint");
+    }
+
+    async function linkColabServer() {
+      const url = document.getElementById("colabUrlInput").value;
+      const res = await fetch("/api/colab/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      log(data.msg);
+      loadInstitutionalAnalytics();
+    }
 
     function switch3DModel(modelName) {
       current3DModel = modelName;
-      document.querySelectorAll(".m-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".m-btn[id^='m-']").forEach(b => b.classList.remove("active"));
       document.getElementById(`m-${modelName}`).classList.add("active");
-      load3DSurface();
+      loadInstitutionalAnalytics();
     }
 
-    function getVibrantQuantColor(h) {
-      // Dải màu Plasma/Cyber Neon: #00f5d4 -> #00bbf9 -> #fee440 -> #ff6b35 -> #ff006e
-      const t = Math.max(0, Math.min(1, (h + 2.0) / 5.5));
+    function getBloombergThermalColor(h) {
+      // Dải màu chuẩn Bloomberg VOLS: Cobalt (#1d4ed8) -> Teal (#0d9488) -> Amber (#f59e0b) -> Crimson (#dc2626)
+      const t = Math.max(0, Math.min(1, (h + 2.2) / 5.2));
       const c = new THREE.Color();
-      if (t < 0.25) c.setHex(0x00f5d4).lerp(new THREE.Color(0x00bbf9), t / 0.25);
-      else if (t < 0.5) c.setHex(0x00bbf9).lerp(new THREE.Color(0xfee440), (t - 0.25) / 0.25);
-      else if (t < 0.75) c.setHex(0xfee440).lerp(new THREE.Color(0xff6b35), (t - 0.5) / 0.25);
-      else c.setHex(0xff6b35).lerp(new THREE.Color(0xff006e), (t - 0.75) / 0.25);
+      if (t < 0.35) c.setHex(0x1d4ed8).lerp(new THREE.Color(0x0d9488), t / 0.35);
+      else if (t < 0.72) c.setHex(0x0d9488).lerp(new THREE.Color(0xf59e0b), (t - 0.35) / 0.37);
+      else c.setHex(0xf59e0b).lerp(new THREE.Color(0xdc2626), (t - 0.72) / 0.28);
       return c;
     }
 
@@ -435,57 +540,52 @@
       const wrap = document.getElementById("three-canvas-wrap");
       if (renderer3D) return;
       scene3D = new THREE.Scene();
-      scene3D.background = new THREE.Color(0x060a12);
-      scene3D.fog = new THREE.FogExp2(0x060a12, 0.015);
+      scene3D.background = new THREE.Color(0x070a0f);
 
-      camera3D = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 0.1, 1000);
+      camera3D = new THREE.PerspectiveCamera(42, wrap.clientWidth / wrap.clientHeight, 0.1, 1000);
       renderer3D = new THREE.WebGLRenderer({ antialias: true });
       renderer3D.setPixelRatio(window.devicePixelRatio);
       renderer3D.setSize(wrap.clientWidth, wrap.clientHeight);
       wrap.appendChild(renderer3D.domElement);
 
-      const gridHelper = new THREE.GridHelper(24, 24, 0x00bbf9, 0x132038);
-      gridHelper.position.y = -2.8;
+      // Lưới tọa độ 3D mảnh chuẩn Bloomberg
+      const gridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x131b29);
+      gridHelper.position.y = -2.4;
       scene3D.add(gridHelper);
 
-      const ambient = new THREE.AmbientLight(0xffffff, 1.1);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.85);
       scene3D.add(ambient);
 
-      const pLight1 = new THREE.PointLight(0x00f5d4, 1.6, 50);
-      pLight1.position.set(12, 16, 12);
-      scene3D.add(pLight1);
-
-      const pLight2 = new THREE.PointLight(0xff006e, 1.4, 50);
-      pLight2.position.set(-12, 14, -12);
-      scene3D.add(pLight2);
+      const dirLight = new THREE.DirectionalLight(0xe2e8f0, 0.65);
+      dirLight.position.set(10, 18, 12);
+      scene3D.add(dirLight);
 
       wrap.addEventListener("mousedown", e => { isDragging3D = true; prevMouse3D = { x: e.clientX, y: e.clientY }; });
       window.addEventListener("mouseup", () => { isDragging3D = false; });
       wrap.addEventListener("mousemove", e => {
         if (!isDragging3D) return;
-        rotY += (e.clientX - prevMouse3D.x) * 0.008;
-        rotX = Math.max(0.15, Math.min(1.45, rotX + (e.clientY - prevMouse3D.y) * 0.008));
+        rotY += (e.clientX - prevMouse3D.x) * 0.007;
+        rotX = Math.max(0.18, Math.min(1.42, rotX + (e.clientY - prevMouse3D.y) * 0.007));
         prevMouse3D = { x: e.clientX, y: e.clientY };
       });
       wrap.addEventListener("wheel", e => {
-        camDist = Math.max(12, Math.min(44, camDist + e.deltaY * 0.015));
+        camDist = Math.max(13, Math.min(40, camDist + e.deltaY * 0.015));
       });
 
       function animate3D() {
         requestAnimationFrame(animate3D);
         if (document.getElementById("surface3d-view").style.display === "grid") {
-          if (!isDragging3D) rotY += 0.0025;
           camera3D.position.x = camDist * Math.sin(rotY) * Math.cos(rotX);
           camera3D.position.y = camDist * Math.sin(rotX);
           camera3D.position.z = camDist * Math.cos(rotY) * Math.cos(rotX);
-          camera3D.lookAt(0, 0, 0);
+          camera3D.lookAt(0, -0.3, 0);
           renderer3D.render(scene3D, camera3D);
         }
       }
       animate3D();
     }
 
-    async function load3DSurface() {
+    async function loadInstitutionalAnalytics() {
       init3DScene();
       const wrap = document.getElementById("three-canvas-wrap");
       if (wrap.clientWidth > 0 && wrap.clientHeight > 0) {
@@ -495,15 +595,47 @@
       }
 
       try {
-        const res = await fetch(`/api/quant/surface/${currentSym}/${currentTF}?model=${current3DModel}`);
+        const res = await fetch(`/api/quant/analytics/${currentSym}/${currentTF}?model=${current3DModel}`);
         if (!res.ok) return;
         const data = await res.json();
-        document.getElementById("surf-meta").innerText = `${data.symbol} [${data.tf}] | Kalman Z: ${data.kalman_z} | GARCH Vol Ratio: ${data.garch_ratio}x`;
 
+        document.getElementById("bbg-sym-lbl").innerText = `${data.symbol} [${data.tf}] — ${data.model.toUpperCase()}`;
+        const m = data.metrics;
+        document.getElementById("m-spot-fv").innerText = `${m.spot} / ${m.kalman_fv}`;
+        document.getElementById("m-kz-garch").innerText = `${m.kalman_z}σ / ${m.garch_ratio}x`;
+        document.getElementById("m-poc-delta").innerText = `${m.poc} / ${m.net_delta > 0 ? '+' : ''}${m.net_delta}`;
+
+        // Cập nhật Deep Learning Card (Colab hoặc Local Proxy)
+        const dl = data.dl_prediction;
+        document.getElementById("dl-source-badge").innerText = dl.source;
+        document.getElementById("dl-source-badge").style.color = dl.source === "COLAB_T4_GPU" ? "var(--green)" : "var(--amber)";
+        document.getElementById("dl-up").innerText = `${dl.prob_up}%`;
+        document.getElementById("dl-dn").innerText = `${dl.prob_down}%`;
+        document.getElementById("dl-regime").innerText = `${dl.regime} (±${dl.expected_move_pts})`;
+
+        // Render Footprint Bid x Ask
+        const maxVol = Math.max(...data.footprint.map(l => l.total), 1);
+        document.getElementById("panel-footprint").innerHTML = data.footprint.map(lv => {
+          const isPoc = lv.price === m.poc;
+          const bidPct = (lv.bid_vol / maxVol) * 100;
+          const askPct = (lv.ask_vol / maxVol) * 100;
+          const imbTag = lv.imbalance === "BUY_IMB" ? "▲" : (lv.imbalance === "SELL_IMB" ? "▼" : "");
+          return `
+            <div class="fp-row ${isPoc ? 'poc' : ''}">
+              <span style="color:${isPoc ? 'var(--amber)' : '#cbd5e1'}; font-weight:bold;">${lv.price} ${isPoc ? 'POC' : ''}</span>
+              <div class="fp-bar-wrap">
+                <div style="width:${bidPct}%; background:var(--red);"></div>
+                <div style="width:${askPct}%; background:var(--green);"></div>
+              </div>
+              <span style="text-align:right; color:var(--muted);">${lv.bid_vol}×${lv.ask_vol} <b style="color:var(--cyan);">${imbTag}</b></span>
+            </div>
+          `;
+        }).join("");
+
+        // Render 3D Mesh
         if (mesh3D) { scene3D.remove(mesh3D); scene3D.remove(wire3D); }
-
         const size = 32;
-        const geom = new THREE.PlaneGeometry(18, 18, size - 1, size - 1);
+        const geom = new THREE.PlaneGeometry(16, 16, size - 1, size - 1);
         geom.rotateX(-Math.PI / 2);
 
         const pos = geom.attributes.position;
@@ -513,20 +645,19 @@
           const col = i % size;
           const h = data.grid[row][col];
           pos.setY(i, h);
-
-          const c = getVibrantQuantColor(h);
+          const c = getBloombergThermalColor(h);
           colors.push(c.r, c.g, c.b);
         }
         geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geom.computeVertexNormals();
 
-        const mat = new THREE.MeshPhongMaterial({
-          vertexColors: true, side: THREE.DoubleSide, shininess: 85, specular: 0x44ffff, transparent: true, opacity: 0.92
+        const mat = new THREE.MeshLambertMaterial({
+          vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.92
         });
         mesh3D = new THREE.Mesh(geom, mat);
         scene3D.add(mesh3D);
 
-        const wireMat = new THREE.MeshBasicMaterial({ color: 0x00f5d4, wireframe: true, transparent: true, opacity: 0.22 });
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, wireframe: true, transparent: true, opacity: 0.16 });
         wire3D = new THREE.Mesh(geom, wireMat);
         scene3D.add(wire3D);
       } catch (e) {}
@@ -534,7 +665,7 @@
 
     // --- DRAWING STATE ---
     let activeTool = "cursor";
-    let activeColor = "#ff9900";
+    let activeColor = "#f59e0b";
     let magnetMode = false;
     let drawings = [];
     let hLines = [];
@@ -701,7 +832,7 @@
       }
 
       list.forEach(item => {
-        const col = item.color || "#ff9900";
+        const col = item.color || "#f59e0b";
         const coords = item.pts.map(p => ({
           x: chart.timeScale().timeToCoordinate(p.time),
           y: candleSeries.priceToCoordinate(p.price),
@@ -717,7 +848,7 @@
         } else if (item.type === "text") {
           ctx.font = "bold 12px Consolas";
           const w = ctx.measureText(item.text).width + 12;
-          ctx.fillStyle = "rgba(11, 15, 23, 0.92)"; ctx.strokeStyle = col;
+          ctx.fillStyle = "rgba(13, 18, 26, 0.92)"; ctx.strokeStyle = col;
           ctx.fillRect(p1.x, p1.y - 18, w, 22); ctx.strokeRect(p1.x, p1.y - 18, w, 22);
           ctx.fillStyle = col; ctx.fillText(item.text, p1.x + 6, p1.y - 3);
         } else if (["trend", "ray", "ext"].includes(item.type)) {
@@ -744,7 +875,7 @@
           ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
         } else if (item.type === "fib") {
           const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
-          const colors = ["#787b86", "#f44336", "#ff9800", "#4caf50", "#00bcd4", "#2196f3", "#787b86"];
+          const colors = ["#787b86", "#ef4444", "#f59e0b", "#10b981", "#38bdf8", "#3b82f6", "#787b86"];
           const leftX = Math.min(p1.x, p2.x), rightX = Math.max(p1.x, p2.x, leftX + 130);
           levels.forEach((lvl, idx) => {
             const y = p1.y + (p2.y - p1.y) * lvl;
@@ -756,21 +887,21 @@
           const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y), w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
           const diffPrice = (p2.price - p1.price).toFixed(2), diffPct = (((p2.price - p1.price) / p1.price) * 100).toFixed(2);
           const isUp = p2.price >= p1.price;
-          ctx.fillStyle = isUp ? "rgba(0, 210, 106, 0.16)" : "rgba(255, 59, 48, 0.16)";
-          ctx.strokeStyle = isUp ? "#00d26a" : "#ff3b30";
+          ctx.fillStyle = isUp ? "rgba(16, 185, 129, 0.16)" : "rgba(239, 68, 68, 0.16)";
+          ctx.strokeStyle = isUp ? "#10b981" : "#ef4444";
           ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
           const label = `${diffPrice} (${diffPct}%)`;
-          ctx.fillStyle = isUp ? "#00d26a" : "#ff3b30"; ctx.font = "bold 11px Consolas";
+          ctx.fillStyle = isUp ? "#10b981" : "#ef4444"; ctx.font = "bold 11px Consolas";
           ctx.fillText(label, x + 4, isUp ? y - 5 : y + h + 13);
         } else if (item.type === "long" || item.type === "short") {
           const entryY = p1.y, slY = p2.y, tpY = coords[2] ? coords[2].y : (p1.y - (p2.y - p1.y) * 2);
           const boxWidth = Math.max(110, Math.abs((coords[2] ? coords[2].x : p2.x) - p1.x));
-          ctx.fillStyle = "rgba(255, 59, 48, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, slY), boxWidth, Math.abs(slY - entryY));
-          ctx.fillStyle = "rgba(0, 210, 106, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, tpY), boxWidth, Math.abs(tpY - entryY));
+          ctx.fillStyle = "rgba(239, 68, 68, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, slY), boxWidth, Math.abs(slY - entryY));
+          ctx.fillStyle = "rgba(16, 185, 129, 0.22)"; ctx.fillRect(p1.x, Math.min(entryY, tpY), boxWidth, Math.abs(tpY - entryY));
           ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.moveTo(p1.x, entryY); ctx.lineTo(p1.x + boxWidth, entryY); ctx.stroke();
           const risk = Math.abs(p1.price - p2.price), reward = coords[2] ? Math.abs(coords[2].price - p1.price) : risk * 2;
           const rr = risk > 0 ? (reward / risk).toFixed(2) : "0.00";
-          ctx.fillStyle = "#00e5ff"; ctx.font = "bold 10px Consolas"; ctx.fillText(`R:R = 1 : ${rr}`, p1.x + 6, entryY - 5);
+          ctx.fillStyle = "#38bdf8"; ctx.font = "bold 10px Consolas"; ctx.fillText(`R:R = 1 : ${rr}`, p1.x + 6, entryY - 5);
         }
         ctx.restore();
       });
@@ -781,8 +912,8 @@
       const canvas = document.getElementById("draw-canvas");
 
       chart = LightweightCharts.createChart(container, {
-        layout: { background: { color: '#05070b' }, textColor: '#94a3b8', fontFamily: 'Consolas, monospace' },
-        grid: { vertLines: { color: '#0f1622' }, horzLines: { color: '#0f1622' } },
+        layout: { background: { color: '#070a0f' }, textColor: '#94a3b8', fontFamily: 'Consolas, monospace' },
+        grid: { vertLines: { color: '#111827' }, horzLines: { color: '#111827' } },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
         rightPriceScale: { borderColor: '#1e293b', autoScale: true },
         timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false, rightOffset: 10 },
@@ -791,9 +922,9 @@
       });
 
       candleSeries = chart.addCandlestickSeries({
-        upColor: '#00d26a', downColor: '#ff3b30',
-        borderUpColor: '#00d26a', borderDownColor: '#ff3b30',
-        wickUpColor: '#00d26a', wickDownColor: '#ff3b30',
+        upColor: '#10b981', downColor: '#ef4444',
+        borderUpColor: '#10b981', borderDownColor: '#ef4444',
+        wickUpColor: '#10b981', wickDownColor: '#ef4444',
       });
 
       volumeSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
@@ -896,7 +1027,7 @@
       } catch (e) {}
 
       if (document.getElementById("surface3d-view").style.display === "grid") {
-        load3DSurface();
+        loadInstitutionalAnalytics();
       }
 
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -1005,7 +1136,7 @@
       document.getElementById("btnMode3D").classList.toggle("active", mode === "3d");
       document.getElementById("btnModeQuant").classList.toggle("active", mode === "quant");
 
-      if (mode === "3d") load3DSurface();
+      if (mode === "3d") loadInstitutionalAnalytics();
     }
 
     async function executeBacktest() {
@@ -1034,12 +1165,12 @@
       const btBox = document.getElementById("bt-chart");
       btBox.innerHTML = "";
       const btChart = LightweightCharts.createChart(btBox, {
-        layout: { background: { color: '#05070b' }, textColor: '#94a3b8' },
-        grid: { vertLines: { color: '#0f1622' }, horzLines: { color: '#0f1622' } },
+        layout: { background: { color: '#070a0f' }, textColor: '#94a3b8' },
+        grid: { vertLines: { color: '#111827' }, horzLines: { color: '#111827' } },
         width: btBox.clientWidth, height: btBox.clientHeight
       });
       const btSeries = btChart.addAreaSeries({
-        lineColor: '#00f5d4', topColor: 'rgba(0, 245, 212, 0.3)', bottomColor: 'rgba(0, 245, 212, 0.0)'
+        lineColor: '#f59e0b', topColor: 'rgba(245, 158, 11, 0.25)', bottomColor: 'rgba(245, 158, 11, 0.0)'
       });
       btSeries.setData(data.equity_curve);
       log(`BT Done: Net $${data.net_profit} | WR ${data.win_rate}% | Sharpe ${data.sharpe}`);
