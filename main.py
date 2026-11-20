@@ -456,8 +456,16 @@ import time as _time
 from datetime import datetime as _dt
 from fastapi import Request
 from fastapi.responses import PlainTextResponse, JSONResponse
-from quant_decision_engine import strict_brain
-from colab_gpu_bridge import query_colab_gpu_prediction, set_colab_url, get_colab_url
+try:
+    from quant_decision_engine import strict_brain
+except Exception:
+    strict_brain = None
+try:
+    from colab_gpu_bridge import query_colab_gpu_prediction, set_colab_url, get_colab_url
+except Exception:
+    def query_colab_gpu_prediction(*a, **k): return None
+    def set_colab_url(u): return u
+    def get_colab_url(): return ""
 
 @app.middleware("http")
 async def nexus_zero_fault_middleware(request: Request, call_next):
@@ -623,3 +631,97 @@ from fastapi.responses import FileResponse as _FileResponse
 @app.get("/nexus_studio.js")
 async def serve_nexus_studio_js():
     return _FileResponse("nexus_studio.js", media_type="application/javascript")
+
+
+# === NEXUS STUDIO MTF & MODULAR INDICATORS ===
+import json as _json
+import os as _os
+from fastapi.responses import FileResponse as _FileResponse
+
+_IND_STORE_PATH = _os.path.join(_os.path.dirname(__file__), "custom_indicators.json")
+
+@app.get("/nexus_indicators.js")
+async def serve_nexus_indicators_js():
+    return _FileResponse("nexus_indicators.js", media_type="application/javascript")
+
+@app.get("/nexus_studio.js")
+async def serve_nexus_studio_js():
+    return _FileResponse("nexus_studio.js", media_type="application/javascript")
+
+@app.get("/api/mt5/multi_tf")
+async def get_mt5_multi_tf(symbol: str = "AUTO", count: int = 400):
+    try:
+        if not mt5.terminal_info():
+            mt5.initialize()
+        if not mt5.terminal_info():
+            return {"status": "NO_MT5", "data": {}}
+
+        resolved = None
+        cands = []
+        if symbol and symbol not in ("AUTO", "SYNCING...", "NO REAL DATA", "INITIALIZING..."):
+            cands.append(symbol)
+        for d_sym in ["XAUUSD", "XAUUSDm", "GOLD", "BTCUSD", "BTCUSDm", "EURUSD", "EURUSDm"]:
+            if d_sym not in cands:
+                cands.append(d_sym)
+        for s in (mt5.symbols_get() or []):
+            if s.visible and s.name not in cands:
+                cands.append(s.name)
+
+        for cand in cands[:20]:
+            mt5.symbol_select(cand, True)
+            test_r = mt5.copy_rates_from_pos(cand, mt5.TIMEFRAME_M5, 0, 50)
+            if test_r is not None and len(test_r) >= 20:
+                resolved = cand
+                break
+
+        if not resolved:
+            return {"status": "NO_SYMBOL", "data": {}}
+
+        tf_map = {
+            "M1": mt5.TIMEFRAME_M1,
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+        }
+        out = {}
+        for label, tf_const in tf_map.items():
+            bars = mt5.copy_rates_from_pos(resolved, tf_const, 0, count)
+            if bars is not None and len(bars) > 0:
+                out[label] = [
+                    {
+                        "time": int(b["time"]),
+                        "open": float(b["open"]),
+                        "high": float(b["high"]),
+                        "low": float(b["low"]),
+                        "close": float(b["close"]),
+                        "volume": float(b["tick_volume"])
+                    }
+                    for b in bars
+                ]
+            else:
+                out[label] = []
+
+        info = mt5.symbol_info(resolved)
+        digits = info.digits if info else 2
+        return {"status": "OK", "symbol": resolved, "digits": digits, "data": out}
+    except Exception as exc:
+        return {"status": "ERROR", "detail": str(exc), "data": {}}
+
+@app.get("/api/indicators/custom")
+async def load_custom_indicators():
+    if _os.path.exists(_IND_STORE_PATH):
+        try:
+            with open(_IND_STORE_PATH, "r", encoding="utf-8") as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return {"states": {}, "v14_config": {}, "custom_list": []}
+
+@app.post("/api/indicators/custom")
+async def save_custom_indicators(payload: dict):
+    with open(_IND_STORE_PATH, "w", encoding="utf-8") as f:
+        _json.dump(payload, f, ensure_ascii=False, indent=2)
+    return {"status": "saved"}
