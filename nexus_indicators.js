@@ -6,9 +6,6 @@
     return m[tf] || 300;
   }
 
-  // =========================================================================
-  // THUẬT TOÁN 1: ENGULF SIGNAL V14 MTF FILTER (CHUYỂN THỂ TỪ PINE SCRIPT V6)
-  // =========================================================================
   const defaultV14Config = {
     minBarsIn: 4,
     tol: 0.2,
@@ -16,14 +13,14 @@
     minMult: 0.0,
     showBox: true,
     showSLTP: true,
-    labelStyle: "Chữ B/S nhỏ", // "Chữ B/S nhỏ" | "Tam giác nhỏ" | "Chấm tròn"
+    labelStyle: "Chữ B/S nhỏ",
     use1: true, tf1: "M15",
     use2: true, tf2: "M30",
     use3: true, tf3: "H1",
     use4: true, tf4: "H4",
     use5: true, tf5: "D1",
     htfConfirmed: true,
-    filterMode: "FLT_STRONG", // FLT_OFF | FLT_NOCTR | FLT_STRONG | FLT_DONE | FLT_TWO
+    filterMode: "FLT_NOCTR", // FLT_OFF | FLT_NOCTR | FLT_STRONG | FLT_DONE | FLT_TWO
     minNbF: 0,
     showFilt: false,
     rrAsia: 1.0,
@@ -32,11 +29,9 @@
     tradeAsia: true,
     tradeEU: true,
     tradeUS: true,
-    statPer: "Toàn bộ dữ liệu", // "Tuần này" | "Tháng này" | "Toàn bộ dữ liệu"
+    statPer: "Toàn bộ dữ liệu",
     statLot: 0.0,
-    statPV: 100.0,
-    showStat: true,
-    showTbl: true
+    statPV: 100.0
   };
 
   function computeHTFStates(bars, cfg) {
@@ -145,9 +140,10 @@
     const boxSegments = [];
     let currentBox = null;
     let lastSignalLevels = null;
+    const allSignalsHistory = [];
 
     const openOrders = [];
-    let stats = { total: 0, wins: 0, losses: 0, rWin: 0, pWin: 0, pLoss: 0, sumRR: 0 };
+    let stats = { total: 0, wins: 0, losses: 0, buyCount: 0, sellCount: 0, rWin: 0, pWin: 0, pLoss: 0, sumRR: 0 };
 
     const nowSec = visibleBars[n - 1].time;
     const startOfWeek = nowSec - 7 * 86400;
@@ -177,6 +173,7 @@
       const bullEng = i > 0 && isBull && prev.close <= prev.open && b.close > prev.open && b.open <= prev.close + cfg.tol * body;
       const bearEng = i > 0 && isBear && prev.close >= prev.open && b.close < prev.open && b.open >= prev.close - cfg.tol * body;
 
+      // Chấm kết quả các lệnh đang chạy
       for (let k = openOrders.length - 1; k >= 0; k--) {
         const ord = openOrders[k];
         const hitSL = ord.dir === 1 ? b.low <= ord.sl : b.high >= ord.sl;
@@ -253,6 +250,8 @@
           openOrders.push({ dir: sigDir, en: b.close, sl: slP, tp: tpP, rr, counted });
           if (counted) {
             stats.total += 1;
+            if (buySig) stats.buyCount += 1;
+            else stats.sellCount += 1;
             stats.sumRR += rr;
           }
 
@@ -264,8 +263,12 @@
             rr: rr,
             sess: sess,
             time: b.time,
-            counter: counter
+            counter: counter,
+            sameCnt: sameCnt,
+            doneCnt: doneCnt,
+            barsAgo: (n - 1) - i
           };
+          allSignalsHistory.push(lastSignalLevels);
         } else if (risk > 0 && !passF && cfg.showFilt) {
           markers.push({
             time: b.time,
@@ -309,10 +312,20 @@
       }
     }
 
+    const liveSetup = {
+      dir: dir,
+      barsInSetup: dir !== 0 ? (n - 1 - baseIdx) : 0,
+      minBarsIn: cfg.minBarsIn,
+      baseHigh: bHigh,
+      baseLow: bLow
+    };
+
     return {
       markers,
-      boxSegments: boxSegments.slice(-12),
+      boxSegments: boxSegments.slice(-8),
       lastSignalLevels,
+      allSignalsHistory: allSignalsHistory.slice(-15),
+      liveSetup,
       stats,
       openCount: openOrders.length,
       htfSummary: htfConfigs.map((c, idx) => ({
@@ -324,9 +337,6 @@
     };
   }
 
-  // =========================================================================
-  // THUẬT TOÁN 2: SUPERTREND ĐỘC LẬP (ATR 10, MULT 3.0)
-  // =========================================================================
   function evaluateSupertrend(visibleBars, periods = 10, mult = 3.0) {
     const n = visibleBars.length;
     if (n < 5) return { up: [], down: [] };
@@ -361,13 +371,7 @@
     return { up: upArr, down: dnArr };
   }
 
-  // =========================================================================
-  // MẪU CODE MẶC ĐỊNH KHI NGƯỜI DÙNG TỰ TẠO INDICATOR MỚI
-  // =========================================================================
   const defaultCustomTemplate = `// Tự tạo Indicator của bạn từ mảng candles [{time, open, high, low, close, volume}]
-// Trả về:
-//   lines: [{ color: "#38bdf8", width: 2, data: [{time, value}] }]
-//   markers: [{ time, position: "belowBar"|"aboveBar", color: "#10b981", shape: "arrowUp"|"arrowDown"|"circle", text: "BUY" }]
 function calcEMA(arr, period) {
   const k = 2 / (period + 1);
   let ema = arr[0].close;
@@ -376,12 +380,10 @@ function calcEMA(arr, period) {
     return { time: c.time, value: ema };
   });
 }
-const ema20 = calcEMA(candles, 20);
-const ema50 = calcEMA(candles, 50);
 return {
   lines: [
-    { color: "#38bdf8", width: 2, data: ema20 },
-    { color: "#f59e0b", width: 2, data: ema50 }
+    { color: "#38bdf8", width: 2, data: calcEMA(candles, 20) },
+    { color: "#f59e0b", width: 2, data: calcEMA(candles, 50) }
   ],
   markers: []
 };`;

@@ -633,6 +633,7 @@ async def serve_nexus_studio_js():
     return _FileResponse("nexus_studio.js", media_type="application/javascript")
 
 
+
 # === NEXUS STUDIO MTF & MODULAR INDICATORS ===
 import json as _json
 import os as _os
@@ -649,7 +650,7 @@ async def serve_nexus_studio_js():
     return _FileResponse("nexus_studio.js", media_type="application/javascript")
 
 @app.get("/api/mt5/multi_tf")
-async def get_mt5_multi_tf(symbol: str = "AUTO", count: int = 400):
+async def get_mt5_multi_tf(symbol: str = "AUTO", count: int = 1500):
     try:
         if not mt5.terminal_info():
             mt5.initialize()

@@ -5,18 +5,19 @@
   const IndLib = window.NexusIndicators;
 
   // =========================================================================
-  // 1. TRẠNG THÁI QUẢN LÝ INDICATOR TÁCH RỜI (MỖI INDICATOR BẬT/TẮT ĐỘC LẬP)
+  // 1. TRẠNG THÁI INDICATOR TÁCH RỜI & CỬA SỔ CALL LỆNH BẬT/TẮT
   // =========================================================================
   let indicatorStates = {
-    engulf_v14: true,      // Engulf Signal v14 MTF Filter (1 nút bật/tắt riêng)
-    supertrend: false      // Supertrend (tách riêng, mặc định tắt cho thoáng chart, bật 1 click)
+    engulf_v14: true,
+    supertrend: false,
+    call_window: true // Cửa sổ Ô Call Lệnh & Thống kê MTF (bật/tắt 1 chạm)
   };
   let stParams = { periods: 10, mult: 3.0 };
   let v14Config = Object.assign({}, IndLib.defaultV14Config);
   let customIndicators = [
     {
       id: "custom_ema_default",
-      name: "EMA 20 / 50 Crossover",
+      name: "EMA 20 / 50 Trend",
       enabled: false,
       code: IndLib.defaultCustomTemplate
     }
@@ -30,35 +31,52 @@
     active: false,
     index: 0,
     playing: false,
-    speedMs: 600,
+    speedMs: 500,
     timer: null,
     pickingCut: false
   };
 
-  // Tham chiếu Chart & Layer vẽ độc lập cho từng Indicator
   let chartRef = null;
   let candleSeriesRef = null;
   let futureAnchorSeries = null;
-
-  // Layer riêng của Supertrend
   let stUpSeries = null;
   let stDownSeries = null;
-
-  // Layer riêng của Engulf v14
   let v14BoxSeries = [];
   let v14PriceLines = [];
+  let customSeriesMap = {};
 
-  // Layer riêng của các Custom Indicators
-  let customSeriesMap = {}; // { indId: [lineSeries...] }
-
-  // Công cụ vẽ tay của người dùng (hỗ trợ kéo sang tương lai)
   let drawTool = "CURSOR";
   let pendingPoint = null;
   let userDrawings = [];
 
   // =========================================================================
-  // 2. MỞ KHÓA TRỤC THỜI GIAN TƯƠNG LAI & BẮT SỰ KIỆN CLICK CHART
+  // 2. HOOK CHART + CHẶN GHI ĐÈ KHI REPLAY + MỞ KHÓA TRỤC TƯƠNG LAI
   // =========================================================================
+  function patchCandleSeriesForReplay(series) {
+    if (!series || series.__replayPatched) return;
+    series.__replayPatched = true;
+    const origSetData = series.setData.bind(series);
+    const origUpdate = series.update.bind(series);
+
+    series.__rawSetData = origSetData;
+    series.__rawUpdate = origUpdate;
+
+    // Khi đang bật Replay, chặn mọi luồng live từ index.html ghi đè chart!
+    series.setData = function (data) {
+      if (replayState.active) {
+        return;
+      }
+      return origSetData(data);
+    };
+
+    series.update = function (bar) {
+      if (replayState.active) {
+        return;
+      }
+      return origUpdate(bar);
+    };
+  }
+
   function attachToChart(chart) {
     if (!chart || chart.__nexusHooked) return;
     chart.__nexusHooked = true;
@@ -90,7 +108,6 @@
       const price = series.coordinateToPrice(param.point.y);
       let clickTime = param.time;
 
-      // Nội suy timestamp nếu click ra vùng tương lai bên phải cây nến cuối cùng
       if (!clickTime && param.logical !== undefined && fullCandles.length >= 2) {
         const tfSec = IndLib.getTfSeconds(activeTf);
         const baseIdx = Math.min(fullCandles.length - 1, Math.max(0, Math.floor(param.logical)));
@@ -99,6 +116,7 @@
       }
       if (!clickTime || price === null || price === undefined) return;
 
+      // Xử lý cắt thời gian Replay khi click lên bất kỳ cây nến nào
       if (replayState.pickingCut) {
         replayState.pickingCut = false;
         const cutIdx = fullCandles.findIndex(c => c.time >= clickTime);
@@ -107,6 +125,7 @@
           replayState.index = cutIdx;
           updateReplayUI();
           renderAllActiveIndicators();
+          updateToolbarStatus(`ĐÃ CẮT REPLAY TẠI NẾN #${cutIdx + 1}`);
         }
         return;
       }
@@ -158,6 +177,7 @@
         }
       }
     }
+    if (candleSeriesRef) patchCandleSeriesForReplay(candleSeriesRef);
     return { chart: chartRef, series: candleSeriesRef };
   }
 
@@ -165,7 +185,6 @@
     return findChartAndSeries().series;
   }
 
-  // Bơm 300 mốc thời gian tương lai để mở khóa hoàn toàn việc vẽ sang phải
   function unlockFutureTimeAxis(candles) {
     const { chart } = findChartAndSeries();
     if (!chart || !futureAnchorSeries || !candles || candles.length === 0) return;
@@ -182,7 +201,7 @@
   }
 
   // =========================================================================
-  // 3. BỘ CÔNG CỤ VẼ HỖ TRỢ KÉO SANG TƯƠNG LAI (LINE, H-LINE, TP/SL BOX)
+  // 3. BỘ CÔNG CỤ VẼ HỖ TRỢ KÉO SANG TƯƠNG LAI
   // =========================================================================
   function handleChartDrawClick(pt) {
     const { chart, series } = findChartAndSeries();
@@ -205,7 +224,7 @@
 
     if (!pendingPoint) {
       pendingPoint = pt;
-      updateToolbarStatus(`ĐIỂM 1: ${pt.price.toFixed(digits)} — CLICK ĐIỂM 2 (KÉO SANG TƯƠNG LAI THOẢI MÁI)`);
+      updateToolbarStatus(`ĐIỂM 1: ${pt.price.toFixed(digits)} — CLICK ĐIỂM 2 (VẼ SANG TƯƠNG LAI THOẢI MÁI)`);
       return;
     }
 
@@ -265,7 +284,7 @@
     document.querySelectorAll(".nx-tool-btn[data-tool]").forEach(b => {
       b.classList.toggle("active", b.dataset.tool === tool);
     });
-    updateToolbarStatus(tool === "CURSOR" ? "FUTURE AXIS UNLOCKED" : `TOOL: ${tool} — CLICK TRÊN CHART (VẼ ĐƯỢC TƯƠNG LAI)`);
+    updateToolbarStatus(tool === "CURSOR" ? "READY" : `TOOL: ${tool} — CLICK TRÊN CHART`);
   };
 
   window.clearAllUserDrawings = function () {
@@ -276,40 +295,28 @@
     });
     userDrawings = [];
     pendingPoint = null;
-    updateToolbarStatus("ĐÃ XÓA TOÀN BỘ NÉT VẼ");
+    updateToolbarStatus("ĐÃ XÓA NÉT VẼ TAY");
   };
 
   // =========================================================================
-  // 4. BỘ QUẢN LÝ BẬT / TẮT TỪNG INDICATOR TÁCH RỜI (DETACHABLE LAYER ENGINE)
+  // 4. BỘ QUẢN LÝ BẬT/TẮT TỪNG INDICATOR & CỬA SỔ CALL LỆNH
   // =========================================================================
-  function clearSupertrendLayer() {
-    const { chart } = findChartAndSeries();
+  function clearAllLayers() {
+    const { chart, series } = findChartAndSeries();
     if (chart) {
       if (stUpSeries) { try { chart.removeSeries(stUpSeries); } catch (e) {} stUpSeries = null; }
       if (stDownSeries) { try { chart.removeSeries(stDownSeries); } catch (e) {} stDownSeries = null; }
-    }
-  }
-
-  function clearEngulfV14Layer() {
-    const { chart, series } = findChartAndSeries();
-    if (chart) {
       v14BoxSeries.forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
+      Object.keys(customSeriesMap).forEach(id => {
+        (customSeriesMap[id] || []).forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
+      });
     }
     v14BoxSeries = [];
+    customSeriesMap = {};
     if (series) {
       v14PriceLines.forEach(pl => { try { series.removePriceLine(pl); } catch (e) {} });
     }
     v14PriceLines = [];
-    const minimap = document.getElementById("nx-v14-minimap");
-    if (minimap) minimap.style.display = "none";
-  }
-
-  function clearCustomIndicatorLayer(id) {
-    const { chart } = findChartAndSeries();
-    if (chart && customSeriesMap[id]) {
-      customSeriesMap[id].forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
-    }
-    delete customSeriesMap[id];
   }
 
   function renderAllActiveIndicators() {
@@ -320,48 +327,34 @@
       ? fullCandles.slice(0, Math.max(30, Math.min(fullCandles.length, replayState.index + 1)))
       : fullCandles;
 
-    if (replayState.active) {
-      try { series.setData(visibleBars); } catch (e) {}
+    // Cập nhật đúng lát cắt nến lên chart bằng __rawSetData (không bị chặn bởi Replay patch)
+    if (series.__rawSetData) {
+      try { series.__rawSetData(visibleBars); } catch (e) {}
     }
 
     unlockFutureTimeAxis(visibleBars);
-
-    // Gỡ sạch các lớp vẽ cũ của từng indicator trước khi vẽ lại các indicator đang BẬT
-    clearSupertrendLayer();
-    clearEngulfV14Layer();
-    Object.keys(customSeriesMap).forEach(clearCustomIndicatorLayer);
+    clearAllLayers();
 
     let combinedMarkers = [];
 
-    // --- MODULE A: SUPERTREND (CHỈ VẼ KHI BẬT) ---
+    // 1. Supertrend (Tách rời)
     if (indicatorStates.supertrend) {
       const st = IndLib.evaluateSupertrend(visibleBars, stParams.periods, stParams.mult);
-      stUpSeries = chart.addLineSeries({
-        color: "#10b981",
-        lineWidth: 2,
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false
-      });
-      stDownSeries = chart.addLineSeries({
-        color: "#ef4444",
-        lineWidth: 2,
-        lastValueVisible: false,
-        priceLineVisible: false,
-        crosshairMarkerVisible: false
-      });
+      stUpSeries = chart.addLineSeries({ color: "#10b981", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+      stDownSeries = chart.addLineSeries({ color: "#ef4444", lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
       stUpSeries.setData(st.up);
       stDownSeries.setData(st.down);
     }
 
-    // --- MODULE B: ENGULF SIGNAL V14 MTF FILTER (CHỈ VẼ KHI BẬT) ---
+    // 2. Engulf Signal v14 MTF Filter (Tách rời)
+    let latestV14Res = null;
     if (indicatorStates.engulf_v14) {
-      const res = IndLib.evaluateEngulfV14(visibleBars, activeTf, mtfCache.data, v14Config);
-      if (res) {
-        combinedMarkers = combinedMarkers.concat(res.markers);
+      latestV14Res = IndLib.evaluateEngulfV14(visibleBars, activeTf, mtfCache.data, v14Config);
+      if (latestV14Res) {
+        combinedMarkers = combinedMarkers.concat(latestV14Res.markers);
 
         if (v14Config.showBox) {
-          res.boxSegments.forEach(bx => {
+          latestV14Res.boxSegments.forEach(bx => {
             if (bx.t1 >= bx.t2) return;
             [bx.hi, bx.lo].forEach(lvl => {
               const ls = chart.addLineSeries({
@@ -377,54 +370,30 @@
           });
         }
 
-        if (v14Config.showSLTP && res.lastSignalLevels) {
-          const sig = res.lastSignalLevels;
+        if (v14Config.showSLTP && latestV14Res.lastSignalLevels) {
+          const sig = latestV14Res.lastSignalLevels;
           const tfSec = IndLib.getTfSeconds(activeTf);
           const tFutureEnd = sig.time + 10 * tfSec;
 
-          const slLine = chart.addLineSeries({
-            color: "#ef4444",
-            lineWidth: 2,
-            lineStyle: 2,
-            lastValueVisible: false,
-            priceLineVisible: false
-          });
+          const slLine = chart.addLineSeries({ color: "#ef4444", lineWidth: 2, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
           slLine.setData([{ time: sig.time, value: sig.sl }, { time: tFutureEnd, value: sig.sl }]);
           v14BoxSeries.push(slLine);
 
-          const tpLine = chart.addLineSeries({
-            color: "#10b981",
-            lineWidth: 2,
-            lineStyle: 2,
-            lastValueVisible: false,
-            priceLineVisible: false
-          });
+          const tpLine = chart.addLineSeries({ color: "#10b981", lineWidth: 2, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
           tpLine.setData([{ time: sig.time, value: sig.tp }, { time: tFutureEnd, value: sig.tp }]);
           v14BoxSeries.push(tpLine);
 
           v14PriceLines.push(series.createPriceLine({
-            price: sig.tp,
-            color: "#10b981",
-            lineWidth: 1,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: `V14 TP (${sig.rr}R)`
+            price: sig.tp, color: "#10b981", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP (${sig.rr}R)`
           }));
           v14PriceLines.push(series.createPriceLine({
-            price: sig.sl,
-            color: "#ef4444",
-            lineWidth: 1,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: "V14 SL"
+            price: sig.sl, color: "#ef4444", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "SL"
           }));
         }
-
-        renderV14StatsTable(res);
       }
     }
 
-    // --- MODULE C: CÁC CUSTOM INDICATORS DO NGƯỜI DÙNG TỰ TẠO ---
+    // 3. Custom Indicators do người dùng tự viết
     customIndicators.forEach(ind => {
       if (!ind.enabled) return;
       try {
@@ -449,94 +418,186 @@
       } catch (err) {}
     });
 
-    // Gộp & sắp xếp markers theo thời gian tăng dần (bắt buộc với Lightweight Charts)
     combinedMarkers.sort((a, b) => a.time - b.time);
     try { series.setMarkers(combinedMarkers); } catch (e) {}
 
+    renderCallOrderWindow(latestV14Res);
     renderIndicatorLegendPills();
   }
 
-  function renderV14StatsTable(res) {
-    const minimap = document.getElementById("nx-v14-minimap");
-    const tbl = document.getElementById("nx-v14-table-body");
-    if (!minimap || !tbl) return;
-    minimap.style.display = "block";
+  // =========================================================================
+  // 5. CỬA SỔ "Ô CALL LỆNH & THỐNG KÊ MTF" CÓ THỂ BẬT / TẮT 1 CHẠM
+  // =========================================================================
+  function renderCallOrderWindow(res) {
+    const win = document.getElementById("nx-call-window");
+    if (!win) return;
 
+    // Ẩn hoàn toàn cửa sổ nếu người dùng tắt "call_window" hoặc tắt "engulf_v14"
+    if (!indicatorStates.call_window || !indicatorStates.engulf_v14 || !res) {
+      win.style.display = "none";
+      return;
+    }
+    win.style.display = "block";
+
+    const body = document.getElementById("nx-call-window-body");
+    if (!body) return;
+
+    const digits = mtfCache.digits || 2;
     const s = res.stats;
     const closed = s.wins + s.losses;
     const wr = closed > 0 ? ((100 * s.wins) / closed).toFixed(0) + "%" : "-";
     const rrAvg = s.total > 0 ? "1:" + (s.sumRR / s.total).toFixed(1) : "-";
     const rNet = s.rWin - s.losses;
     const pNet = s.pWin - s.pLoss;
-    const avgR = closed > 0 ? `${rNet >= 0 ? "+" : ""}${(rNet / closed).toFixed(2)}R/lệnh` : "";
 
-    const fmtVal = (rV, pV, sign) => {
-      let txt = `${sign}${rV.toFixed(2)}R | ${sign}${pV.toFixed(1)}`;
-      if (v14Config.statLot > 0) {
-        txt += ` | ${sign}${(pV * v14Config.statPV * v14Config.statLot).toFixed(0)}$`;
-      }
-      return txt;
-    };
+    // 1. Khối Ô Call Lệnh mới nhất
+    let callCardHtml = "";
+    const sig = res.lastSignalLevels;
+    if (sig) {
+      const isBuy = sig.side === "BUY";
+      const badgeBg = sig.counter ? "#a855f7" : (isBuy ? "#10b981" : "#ef4444");
+      const dtStr = new Date((sig.time + 7 * 3600) * 1000).toISOString().replace("T", " ").slice(5, 16);
+      callCardHtml = `
+        <div style="background:rgba(15,23,42,0.95); border:1px solid ${badgeBg}; padding:8px; margin-bottom:7px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+            <span style="background:${badgeBg}; color:#000; font-weight:900; padding:2px 6px; font-size:10.5px;">
+              CALL ${sig.side} ${sig.counter ? "(NGHỊCH MTF)" : ""}
+            </span>
+            <span style="color:#94a3b8; font-size:9.5px;">${dtStr} · Phiên ${sig.sess}</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px; font-size:10.5px; text-align:center; background:#050811; padding:5px; border:1px solid rgba(148,163,184,0.18);">
+            <div><div style="color:#94a3b8; font-size:8.5px;">ENTRY</div><b style="color:#38bdf8;">${sig.entry.toFixed(digits)}</b></div>
+            <div><div style="color:#94a3b8; font-size:8.5px;">SL</div><b style="color:#ef4444;">${sig.sl.toFixed(digits)}</b></div>
+            <div><div style="color:#94a3b8; font-size:8.5px;">TP (${sig.rr}R)</div><b style="color:#10b981;">${sig.tp.toFixed(digits)}</b></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:9.5px;">
+            <span style="color:#cbd5e1;">Cách hiện tại: <b>${sig.barsAgo} nến</b></span>
+            <button onclick="executeCallOrderToMT5('${sig.side}', ${sig.entry}, ${sig.sl}, ${sig.tp})" style="background:#ff9900; color:#000; border:none; padding:3px 8px; font-family:inherit; font-weight:800; font-size:9.5px; cursor:pointer;">
+              ⚡ VÀO LỆNH MT5
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      callCardHtml = `
+        <div style="background:#050811; border:1px dashed rgba(148,163,184,0.3); padding:7px; margin-bottom:7px; color:#94a3b8; font-size:10px;">
+          Chưa có lệnh thỏa điều kiện lọc hiện tại. Thử đổi bộ lọc bên dưới sang <b>"Tắt lọc (Tất cả B/S)"</b> để xem toàn bộ tín hiệu.
+        </div>
+      `;
+    }
 
-    let html = `
-      <tr style="background:#1e3a8a; color:#fff; font-weight:700;">
-        <td>${v14Config.statPer}</td>
-        <td>${mtfCache.symbol} ${activeTf}</td>
-      </tr>
-      <tr>
-        <td>Lệnh</td>
-        <td>${s.total} &nbsp;<span style="color:#10b981;">✓${s.wins}</span> <span style="color:#ef4444;">✗${s.losses}</span> <span style="color:#fbbf24;">⏳${res.openCount}</span></td>
-      </tr>
-      <tr>
-        <td>WR · RR</td>
-        <td><b>${wr}</b> · ${rrAvg} ${avgR ? "· " + avgR : ""}</td>
-      </tr>
-      <tr>
-        <td>Thắng</td>
-        <td style="color:#10b981;">${fmtVal(s.rWin, s.pWin, "+")}</td>
-      </tr>
-      <tr>
-        <td>Thua</td>
-        <td style="color:#ef4444;">${fmtVal(s.losses, s.pLoss, "-")}</td>
-      </tr>
-      <tr>
-        <td>Ròng</td>
-        <td style="color:${pNet >= 0 ? "#10b981" : "#ef4444"}; font-weight:700;">${fmtVal(Math.abs(rNet), Math.abs(pNet), pNet >= 0 ? "+" : "-")}</td>
-      </tr>
-      <tr style="background:#1e3a8a; color:#fff; font-weight:700;">
-        <td>Khung</td>
-        <td>Trạng thái MTF</td>
-      </tr>
+    // 2. Chẩn đoán trạng thái cây gốc đang theo dõi (giúp biết indicator đang phân tích hướng nào)
+    const stp = res.liveSetup;
+    const setupText = stp.dir === 1
+      ? `<span style="color:#10b981;">ĐANG SĂN BUY (nến ${stp.barsInSetup}/${stp.minBarsIn})</span>`
+      : (stp.dir === -1
+        ? `<span style="color:#ef4444;">ĐANG SĂN SELL (nến ${stp.barsInSetup}/${stp.minBarsIn})</span>`
+        : `<span style="color:#94a3b8;">CHỜ CÂY GỐC MỚI</span>`);
+
+    // 3. Bộ chuyển nhanh chế độ lọc ngay trên cửa sổ
+    const filterSelector = `
+      <div style="margin-bottom:7px;">
+        <div style="display:flex; justify-content:space-between; font-size:9.5px; margin-bottom:3px;">
+          <span style="color:#94a3b8;">Trạng thái:</span>
+          <b>${setupText}</b>
+        </div>
+        <select onchange="quickChangeV14Filter(this.value)" style="width:100%; background:#050811; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-family:inherit; font-size:10px; padding:3px 5px;">
+          <option value="FLT_OFF" ${v14Config.filterMode === "FLT_OFF" ? "selected" : ""}>Lọc: Tắt (Hiện tất cả BUY & SELL)</option>
+          <option value="FLT_NOCTR" ${v14Config.filterMode === "FLT_NOCTR" ? "selected" : ""}>Lọc: Bỏ tín hiệu nghịch khung lớn</option>
+          <option value="FLT_STRONG" ${v14Config.filterMode === "FLT_STRONG" ? "selected" : ""}>Lọc: Thuận mạnh (≥1 xong hoặc ≥2 cùng chiều)</option>
+          <option value="FLT_DONE" ${v14Config.filterMode === "FLT_DONE" ? "selected" : ""}>Lọc: ≥1 khung lớn đã có tín hiệu</option>
+          <option value="FLT_TWO" ${v14Config.filterMode === "FLT_TWO" ? "selected" : ""}>Lọc: ≥2 khung lớn cùng chiều</option>
+        </select>
+      </div>
     `;
 
+    // 4. Bảng thống kê Backtest (chia rõ số lệnh BUY và SELL) & Minimap 5 khung
+    let mtfRows = "";
     res.htfSummary.forEach(h => {
       if (!h.use) return;
-      let bg = "rgba(71,85,105,0.45)";
+      let bg = "rgba(71,85,105,0.35)";
       let stt = "—";
       if (!h.ok) {
-        bg = "rgba(217,119,6,0.35)";
+        bg = "rgba(217,119,6,0.3)";
         stt = "bỏ qua";
       } else if (h.val > 0) {
-        bg = Math.abs(h.val) === 2 ? "rgba(16,185,129,0.55)" : "rgba(16,185,129,0.22)";
+        bg = Math.abs(h.val) === 2 ? "rgba(16,185,129,0.5)" : "rgba(16,185,129,0.2)";
         stt = "BUY " + (Math.abs(h.val) === 2 ? "✓" : "…");
       } else if (h.val < 0) {
-        bg = Math.abs(h.val) === 2 ? "rgba(239,68,68,0.55)" : "rgba(239,68,68,0.22)";
+        bg = Math.abs(h.val) === 2 ? "rgba(239,68,68,0.5)" : "rgba(239,68,68,0.2)";
         stt = "SELL " + (Math.abs(h.val) === 2 ? "✓" : "…");
       }
-      html += `<tr style="background:${bg};"><td><b>${h.tf}</b></td><td>${stt}</td></tr>`;
+      mtfRows += `<tr style="background:${bg};"><td><b>${h.tf}</b></td><td>${stt}</td></tr>`;
     });
 
-    tbl.innerHTML = html;
+    body.innerHTML = `
+      ${callCardHtml}
+      ${filterSelector}
+      <table style="width:100%; border-collapse:collapse; font-size:10px;">
+        <tr style="background:#1e3a8a; color:#fff; font-weight:700;">
+          <td>Backtest (${fullCandles.length} nến)</td>
+          <td>${mtfCache.symbol} ${activeTf}</td>
+        </tr>
+        <tr>
+          <td>Tổng lệnh</td>
+          <td><b>${s.total}</b> (<span style="color:#10b981;">B:${s.buyCount}</span> · <span style="color:#ef4444;">S:${s.sellCount}</span>)</td>
+        </tr>
+        <tr>
+          <td>Kết quả</td>
+          <td><span style="color:#10b981;">✓${s.wins}</span> · <span style="color:#ef4444;">✗${s.losses}</span> · <span style="color:#fbbf24;">⏳${res.openCount}</span></td>
+        </tr>
+        <tr>
+          <td>WR · RR</td>
+          <td><b>${wr}</b> · ${rrAvg}</td>
+        </tr>
+        <tr>
+          <td>Ròng R</td>
+          <td style="color:${rNet >= 0 ? "#10b981" : "#ef4444"}; font-weight:800;">${rNet >= 0 ? "+" : ""}${rNet.toFixed(2)}R (${pNet >= 0 ? "+" : ""}${pNet.toFixed(1)})</td>
+        </tr>
+        <tr style="background:#1e3a8a; color:#fff; font-weight:700;">
+          <td>Khung lớn</td>
+          <td>Trạng thái vùng</td>
+        </tr>
+        ${mtfRows}
+      </table>
+    `;
   }
 
+  window.quickChangeV14Filter = function (mode) {
+    v14Config.filterMode = mode;
+    persistAllIndicatorSettings();
+    renderAllActiveIndicators();
+  };
+
+  window.executeCallOrderToMT5 = async function (side, entry, sl, tp) {
+    try {
+      const res = await fetch("/api/trade/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: mtfCache.symbol,
+          action: side,
+          volume: 0.01,
+          sl: Number(sl),
+          tp: Number(tp),
+          comment: "NEXUS_V14_CALL"
+        })
+      });
+      const data = await res.json();
+      updateToolbarStatus(`MT5 ORDER ${side}: ${data.status || JSON.stringify(data)}`);
+    } catch (e) {
+      updateToolbarStatus("LỖI GỬI LỆNH SANG MT5");
+    }
+  };
+
   // =========================================================================
-  // 5. THANH THẺ INDICATOR NỔI (BẬT / TẮT 1 CLICK NHƯ TRADINGVIEW OBJECT TREE)
+  // 6. THANH THẺ INDICATOR & NÚT BẬT/TẮT CỬA SỔ CALL LỆNH
   // =========================================================================
   function renderIndicatorLegendPills() {
     const box = document.getElementById("nx-ind-pills-bar");
     if (!box) return;
 
-    const makePill = (id, title, isOn, toggleFn, configFn, deleteFn) => {
+    const makePill = (title, isOn, toggleFn, configFn, deleteFn) => {
       const eyeColor = isOn ? "#10b981" : "#64748b";
       const borderCol = isOn ? "rgba(16,185,129,0.55)" : "rgba(148,163,184,0.25)";
       const textCol = isOn ? "#f8fafc" : "#64748b";
@@ -546,15 +607,14 @@
             ${isOn ? "👁 ON" : "🚫 OFF"}
           </button>
           <span style="font-weight:700;">${title}</span>
-          ${configFn ? `<button onclick="${configFn}" title="Cài đặt thông số" style="background:none; border:none; color:#38bdf8; cursor:pointer; padding:0 2px;">⚙</button>` : ""}
-          ${deleteFn ? `<button onclick="${deleteFn}" title="Xóa indicator này" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0 2px;">✕</button>` : ""}
+          ${configFn ? `<button onclick="${configFn}" title="Cài đặt" style="background:none; border:none; color:#38bdf8; cursor:pointer; padding:0 2px;">⚙</button>` : ""}
+          ${deleteFn ? `<button onclick="${deleteFn}" title="Xóa" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0 2px;">✕</button>` : ""}
         </div>
       `;
     };
 
     let html = makePill(
-      "engulf_v14",
-      "Engulf Signal v14 MTF",
+      "Engulf v14 MTF",
       indicatorStates.engulf_v14,
       "toggleBuiltinIndicator('engulf_v14')",
       "openV14SettingsModal()",
@@ -562,7 +622,14 @@
     );
 
     html += makePill(
-      "supertrend",
+      "Ô Call Lệnh & Bảng MTF",
+      indicatorStates.call_window,
+      "toggleBuiltinIndicator('call_window')",
+      null,
+      null
+    );
+
+    html += makePill(
       `Supertrend (${stParams.periods}, ${stParams.mult})`,
       indicatorStates.supertrend,
       "toggleBuiltinIndicator('supertrend')",
@@ -572,7 +639,6 @@
 
     customIndicators.forEach(ind => {
       html += makePill(
-        ind.id,
         ind.name,
         ind.enabled,
         `toggleCustomIndicator('${ind.id}')`,
@@ -638,31 +704,61 @@
   };
 
   // =========================================================================
-  // 6. BAR REPLAY CONTROLLER (TUA THỜI GIAN BACKTEST)
+  // 7. BỘ ĐIỀU KHIỂN TUA THỜI GIAN BACKTEST (BAR REPLAY + THANH TRƯỢT)
   // =========================================================================
   function updateReplayUI() {
     const statusEl = document.getElementById("nx-replay-status");
     const playBtn = document.getElementById("nx-replay-play");
+    const slider = document.getElementById("nx-replay-slider");
+
+    if (slider && fullCandles.length > 30) {
+      slider.min = 30;
+      slider.max = fullCandles.length - 1;
+      slider.value = replayState.active ? replayState.index : (fullCandles.length - 1);
+    }
+
     if (!replayState.active) {
-      if (statusEl) statusEl.innerText = "LIVE REALTIME";
-      if (playBtn) playBtn.innerText = "▶ PLAY";
+      if (statusEl) statusEl.innerText = "LIVE";
+      if (playBtn) playBtn.innerText = "▶";
       return;
     }
+
     const curBar = fullCandles[replayState.index];
-    const dtStr = curBar ? new Date((curBar.time + 7 * 3600) * 1000).toISOString().replace("T", " ").slice(0, 16) : "--";
-    if (statusEl) statusEl.innerText = `REPLAY: ${dtStr} (${replayState.index + 1}/${fullCandles.length})`;
-    if (playBtn) playBtn.innerText = replayState.playing ? "❚❚ PAUSE" : "▶ PLAY";
+    const dtStr = curBar ? new Date((curBar.time + 7 * 3600) * 1000).toISOString().replace("T", " ").slice(5, 16) : "--";
+    if (statusEl) statusEl.innerText = `${dtStr} (${replayState.index + 1}/${fullCandles.length})`;
+    if (playBtn) playBtn.innerText = replayState.playing ? "❚❚" : "▶";
   }
+
+  window.onReplaySliderInput = function (val) {
+    const idx = parseInt(val, 10);
+    if (isNaN(idx) || fullCandles.length < 35) return;
+    replayState.active = true;
+    replayState.index = Math.max(30, Math.min(fullCandles.length - 1, idx));
+    updateReplayUI();
+    renderAllActiveIndicators();
+  };
 
   window.startPickReplayCut = function () {
     replayState.pickingCut = true;
-    updateToolbarStatus("CLICK VÀO CÂY NẾN TRÊN BIỂU ĐỒ ĐỂ CẮT THỜI GIAN BACKTEST...");
+    updateToolbarStatus("CLICK VÀO CÂY NẾN BẤT KỲ TRÊN CHART ĐỂ TUA VỀ ĐÓ...");
+  };
+
+  window.stepReplayBar = function (delta) {
+    if (fullCandles.length < 35) return;
+    if (!replayState.active) {
+      replayState.active = true;
+      replayState.index = Math.max(30, fullCandles.length - 30);
+    }
+    replayState.index = Math.max(30, Math.min(fullCandles.length - 1, replayState.index + delta));
+    updateReplayUI();
+    renderAllActiveIndicators();
   };
 
   window.toggleReplayPlay = function () {
-    if (!replayState.active && fullCandles.length > 60) {
+    if (fullCandles.length < 35) return;
+    if (!replayState.active) {
       replayState.active = true;
-      replayState.index = Math.max(40, fullCandles.length - 80);
+      replayState.index = Math.max(30, fullCandles.length - 120);
     }
     replayState.playing = !replayState.playing;
     if (replayState.playing) {
@@ -683,18 +779,8 @@
     updateReplayUI();
   };
 
-  window.stepReplayBar = function (delta) {
-    if (!replayState.active && fullCandles.length > 60) {
-      replayState.active = true;
-      replayState.index = Math.max(40, fullCandles.length - 50);
-    }
-    replayState.index = Math.max(30, Math.min(fullCandles.length - 1, replayState.index + delta));
-    updateReplayUI();
-    renderAllActiveIndicators();
-  };
-
   window.cycleReplaySpeed = function () {
-    const speeds = [600, 250, 80];
+    const speeds = [500, 200, 60];
     const labels = ["1X", "3X", "10X"];
     const nextIdx = (speeds.indexOf(replayState.speedMs) + 1) % speeds.length;
     replayState.speedMs = speeds[nextIdx];
@@ -712,17 +798,28 @@
     replayState.playing = false;
     replayState.pickingCut = false;
     clearInterval(replayState.timer);
-    const series = findCandleSeries();
-    if (series && fullCandles.length > 0) {
-      try { series.setData(fullCandles); } catch (e) {}
-    }
     updateReplayUI();
     renderAllActiveIndicators();
-    updateToolbarStatus("ĐÃ QUAY LẠI DỮ LIỆU THỜI GIAN THỰC");
+    updateToolbarStatus("ĐÃ QUAY LẠI THỜI GIAN THỰC");
+  };
+
+  window.switchStudioTimeframe = function (tf) {
+    activeTf = tf;
+    document.querySelectorAll(".nx-tf-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.tf === tf);
+    });
+    if (mtfCache.data && mtfCache.data[tf] && mtfCache.data[tf].length > 30) {
+      fullCandles = mtfCache.data[tf];
+      if (replayState.active) {
+        replayState.index = Math.min(fullCandles.length - 1, replayState.index);
+      }
+      updateReplayUI();
+      renderAllActiveIndicators();
+    }
   };
 
   // =========================================================================
-  // 7. GIAO DIỆN TOOLBAR + CÁC MODAL CẤU HÌNH TÁCH RỜI
+  // 8. DỰNG GIAO DIỆN TOOLBAR + CỬA SỔ CALL LỆNH + CÁC MODAL CẤU HÌNH
   // =========================================================================
   function updateToolbarStatus(msg) {
     const el = document.getElementById("nx-studio-msg");
@@ -741,7 +838,7 @@
         z-index: 99998;
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 4px;
         font-family: 'JetBrains Mono', 'Consolas', monospace;
         font-size: 10px;
         color: #e2e8f0;
@@ -750,40 +847,49 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 5px;
-        background: rgba(7, 11, 19, 0.93);
+        gap: 4px;
+        background: rgba(7, 11, 19, 0.94);
         border: 1px solid rgba(255, 153, 0, 0.35);
-        padding: 4px 9px;
-        box-shadow: 0 6px 20px rgba(0,0,0,0.7);
+        padding: 4px 8px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.75);
       }
-      .nx-tool-btn {
+      .nx-tool-btn, .nx-tf-btn {
         background: #0f172a;
         color: #cbd5e1;
         border: 1px solid rgba(148,163,184,0.28);
-        padding: 3px 7px;
+        padding: 3px 6px;
         font-family: inherit;
         font-size: 9.5px;
         cursor: pointer;
         font-weight: 700;
       }
-      .nx-tool-btn:hover { border-color: #ff9900; color: #fff; }
-      .nx-tool-btn.active { background: #ff9900; color: #000; border-color: #ff9900; }
+      .nx-tool-btn:hover, .nx-tf-btn:hover { border-color: #ff9900; color: #fff; }
+      .nx-tool-btn.active, .nx-tf-btn.active { background: #ff9900; color: #000; border-color: #ff9900; }
       .nx-sep { width: 1px; height: 15px; background: rgba(148,163,184,0.25); margin: 0 2px; }
-      #nx-v14-minimap {
+      #nx-call-window {
         position: fixed;
         top: 108px;
         right: 365px;
-        z-index: 99990;
-        background: rgba(7, 11, 19, 0.92);
-        border: 1px solid rgba(148,163,184,0.3);
+        z-index: 99992;
+        width: 255px;
+        background: rgba(7, 11, 19, 0.94);
+        border: 1px solid rgba(56, 189, 248, 0.45);
         font-family: 'JetBrains Mono', 'Consolas', monospace;
         font-size: 10px;
         color: #f8fafc;
-        min-width: 215px;
-        box-shadow: 0 10px 28px rgba(0,0,0,0.7);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.8);
       }
-      #nx-v14-minimap table { width: 100%; border-collapse: collapse; }
-      #nx-v14-minimap td { padding: 3px 7px; border: 1px solid rgba(148,163,184,0.18); font-variant-numeric: tabular-nums; }
+      #nx-call-window-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #0f172a;
+        border-bottom: 1px solid rgba(56, 189, 248, 0.3);
+        padding: 5px 8px;
+        cursor: move;
+      }
+      #nx-call-window-body { padding: 7px; }
+      #nx-call-window-body td { padding: 3px 6px; border: 1px solid rgba(148,163,184,0.18); font-variant-numeric: tabular-nums; }
       .nx-modal-backdrop {
         display: none;
         position: fixed;
@@ -805,22 +911,11 @@
         padding: 16px 20px;
         color: #e2e8f0;
       }
-      .nx-form-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-        margin: 12px 0;
-      }
+      .nx-form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
       .nx-field label { display: block; font-size: 9.5px; color: #94a3b8; margin-bottom: 3px; }
       .nx-field input, .nx-field select, .nx-modal-card textarea {
-        width: 100%;
-        background: #04070d;
-        border: 1px solid rgba(56,189,248,0.4);
-        color: #fff;
-        font-family: inherit;
-        font-size: 11px;
-        padding: 5px 7px;
-        box-sizing: border-box;
+        width: 100%; background: #04070d; border: 1px solid rgba(56,189,248,0.4); color: #fff;
+        font-family: inherit; font-size: 11px; padding: 5px 7px; box-sizing: border-box;
       }
     `;
     document.head.appendChild(style);
@@ -829,35 +924,72 @@
     dock.id = "nx-studio-dock";
     dock.innerHTML = `
       <div class="nx-dock-row">
-        <span style="color:#ff9900; font-weight:800;">TOOLS:</span>
-        <button class="nx-tool-btn active" data-tool="CURSOR" onclick="setDrawTool('CURSOR')">CURSOR</button>
+        <span style="color:#ff9900; font-weight:800;">TF:</span>
+        <button class="nx-tf-btn" data-tf="M1" onclick="switchStudioTimeframe('M1')">M1</button>
+        <button class="nx-tf-btn active" data-tf="M5" onclick="switchStudioTimeframe('M5')">M5</button>
+        <button class="nx-tf-btn" data-tf="M15" onclick="switchStudioTimeframe('M15')">M15</button>
+        <button class="nx-tf-btn" data-tf="M30" onclick="switchStudioTimeframe('M30')">M30</button>
+        <button class="nx-tf-btn" data-tf="H1" onclick="switchStudioTimeframe('H1')">H1</button>
+        <button class="nx-tf-btn" data-tf="H4" onclick="switchStudioTimeframe('H4')">H4</button>
+        <div class="nx-sep"></div>
+        <span style="color:#ff9900; font-weight:800;">DRAW:</span>
+        <button class="nx-tool-btn active" data-tool="CURSOR" onclick="setDrawTool('CURSOR')">↖</button>
         <button class="nx-tool-btn" data-tool="TRENDLINE" onclick="setDrawTool('TRENDLINE')">LINE</button>
         <button class="nx-tool-btn" data-tool="HLINE" onclick="setDrawTool('HLINE')">H-LINE</button>
-        <button class="nx-tool-btn" data-tool="LONG_BOX" onclick="setDrawTool('LONG_BOX')" style="color:#10b981;">LONG TP/SL</button>
-        <button class="nx-tool-btn" data-tool="SHORT_BOX" onclick="setDrawTool('SHORT_BOX')" style="color:#ef4444;">SHORT TP/SL</button>
-        <button class="nx-tool-btn" onclick="clearAllUserDrawings()" title="Xóa nét vẽ tay">CLR</button>
+        <button class="nx-tool-btn" data-tool="LONG_BOX" onclick="setDrawTool('LONG_BOX')" style="color:#10b981;">LONG</button>
+        <button class="nx-tool-btn" data-tool="SHORT_BOX" onclick="setDrawTool('SHORT_BOX')" style="color:#ef4444;">SHORT</button>
+        <button class="nx-tool-btn" onclick="clearAllUserDrawings()">CLR</button>
         <div class="nx-sep"></div>
         <span style="color:#38bdf8; font-weight:800;">REPLAY:</span>
-        <button class="nx-tool-btn" onclick="startPickReplayCut()" title="Click lên nến để tua lùi thời gian">✂ CUT</button>
-        <button class="nx-tool-btn" onclick="stepReplayBar(-1)">|&lt;</button>
-        <button class="nx-tool-btn" id="nx-replay-play" onclick="toggleReplayPlay()">▶ PLAY</button>
-        <button class="nx-tool-btn" onclick="stepReplayBar(1)">&gt;|</button>
+        <button class="nx-tool-btn" onclick="startPickReplayCut()" title="Click lên nến để cắt lùi thời gian">✂ CUT</button>
+        <button class="nx-tool-btn" onclick="stepReplayBar(-10)" title="Tua lùi 10 nến">⏪-10</button>
+        <button class="nx-tool-btn" onclick="stepReplayBar(-1)" title="Lùi 1 nến">|&lt;</button>
+        <button class="nx-tool-btn" id="nx-replay-play" onclick="toggleReplayPlay()">▶</button>
+        <button class="nx-tool-btn" onclick="stepReplayBar(1)" title="Tiến 1 nến">&gt;|</button>
+        <button class="nx-tool-btn" onclick="stepReplayBar(10)" title="Tua tới 10 nến">+10⏩</button>
         <button class="nx-tool-btn" id="nx-replay-speed" onclick="cycleReplaySpeed()">1X</button>
+        <input id="nx-replay-slider" type="range" min="30" max="1499" value="1499" oninput="onReplaySliderInput(this.value)" style="width:95px; accent-color:#38bdf8; cursor:pointer;" title="Kéo thanh trượt để tua ngược/xuôi thời gian backtest" />
         <button class="nx-tool-btn" onclick="exitReplayMode()" style="color:#fbbf24;">EXIT</button>
-        <span id="nx-replay-status" style="color:#94a3b8; margin-left:4px;">LIVE REALTIME</span>
-        <span id="nx-studio-msg" style="color:#38bdf8; margin-left:6px;">FUTURE AXIS UNLOCKED</span>
+        <span id="nx-replay-status" style="color:#10b981; font-weight:700;">LIVE</span>
+        <span id="nx-studio-msg" style="color:#94a3b8; margin-left:4px;"></span>
       </div>
       <div class="nx-dock-row" id="nx-ind-pills-bar" style="border-color:rgba(56,189,248,0.3);"></div>
     `;
     document.body.appendChild(dock);
 
-    // Bảng Thống kê & MTF của riêng Engulf v14
-    const minimap = document.createElement("div");
-    minimap.id = "nx-v14-minimap";
-    minimap.innerHTML = `<table><tbody id="nx-v14-table-body"><tr><td>Loading Engulf v14 MTF...</td></tr></tbody></table>`;
-    document.body.appendChild(minimap);
+    // Cửa sổ Ô Call Lệnh & Thống Kê MTF (Bật/Tắt được)
+    const callWin = document.createElement("div");
+    callWin.id = "nx-call-window";
+    callWin.innerHTML = `
+      <div id="nx-call-window-header">
+        <b style="color:#38bdf8; font-size:10px;">📡 ENGULF V14 CALL LỆNH & MTF</b>
+        <button onclick="toggleBuiltinIndicator('call_window')" title="Tắt cửa sổ báo lệnh này (bấm nút 'Ô Call Lệnh' trên thanh trên để bật lại)" style="background:none; border:1px solid rgba(239,68,68,0.5); color:#ef4444; font-family:inherit; font-size:9px; padding:1px 5px; cursor:pointer; font-weight:800;">
+          TẮT [✕]
+        </button>
+      </div>
+      <div id="nx-call-window-body">Đang tải dữ liệu 1.500 nến MT5...</div>
+    `;
+    document.body.appendChild(callWin);
 
-    // Modal 1: Cài đặt riêng cho Engulf Signal v14 MTF
+    // Kéo thả di chuyển tự do cửa sổ Call Lệnh trên màn hình
+    let isDragging = false, dragOffX = 0, dragOffY = 0;
+    const hdr = document.getElementById("nx-call-window-header");
+    hdr.addEventListener("mousedown", (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      isDragging = true;
+      const rect = callWin.getBoundingClientRect();
+      dragOffX = e.clientX - rect.left;
+      dragOffY = e.clientY - rect.top;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      callWin.style.left = Math.max(0, e.clientX - dragOffX) + "px";
+      callWin.style.top = Math.max(0, e.clientY - dragOffY) + "px";
+      callWin.style.right = "auto";
+    });
+    window.addEventListener("mouseup", () => { isDragging = false; });
+
+    // Modal Cài đặt V14
     const v14Modal = document.createElement("div");
     v14Modal.id = "nx-v14-modal";
     v14Modal.className = "nx-modal-backdrop";
@@ -875,43 +1007,45 @@
           </div>
           <div class="nx-field"><label>Bộ lọc xu hướng khung lớn</label>
             <select id="cfg-filterMode">
-              <option value="FLT_STRONG">Thuận mạnh (≥1 xong hoặc ≥2 cùng chiều)</option>
-              <option value="FLT_OFF">Tắt - báo tất cả</option>
+              <option value="FLT_OFF">Tắt - báo tất cả BUY & SELL</option>
               <option value="FLT_NOCTR">Bỏ nghịch xu hướng (tím)</option>
+              <option value="FLT_STRONG">Thuận mạnh (≥1 xong hoặc ≥2 cùng chiều)</option>
               <option value="FLT_DONE">≥1 khung lớn đã có tín hiệu</option>
               <option value="FLT_TWO">≥2 khung lớn cùng chiều</option>
             </select>
           </div>
           <div class="nx-field"><label>RR Phiên Á / Âu / Mỹ</label>
             <div style="display:flex; gap:4px;">
-              <input id="cfg-rrAsia" type="number" step="0.1" title="RR Á" />
-              <input id="cfg-rrEu" type="number" step="0.1" title="RR Âu" />
-              <input id="cfg-rrUs" type="number" step="0.1" title="RR Mỹ" />
+              <input id="cfg-rrAsia" type="number" step="0.1" />
+              <input id="cfg-rrEu" type="number" step="0.1" />
+              <input id="cfg-rrUs" type="number" step="0.1" />
             </div>
           </div>
           <div class="nx-field"><label>Khoảng thống kê Backtest</label>
             <select id="cfg-statPer">
-              <option value="Toàn bộ dữ liệu">Toàn bộ dữ liệu</option>
+              <option value="Toàn bộ dữ liệu">Toàn bộ dữ liệu (1.500 nến)</option>
               <option value="Tuần này">Tuần này</option>
               <option value="Tháng này">Tháng này</option>
             </select>
           </div>
-          <div class="nx-field"><label>Số Lot quy tiền (0 = tắt)</label><input id="cfg-statLot" type="number" step="0.01" /></div>
           <div class="nx-field"><label>Hiện tín hiệu bị lọc (chấm xám)</label>
             <select id="cfg-showFilt"><option value="false">Tắt</option><option value="true">Bật</option></select>
           </div>
-          <div class="nx-field"><label>Vẽ vùng cây gốc & SL/TP</label>
-            <select id="cfg-showBox"><option value="true">Bật cả 2</option><option value="false">Tắt vùng gốc</option></select>
+          <div class="nx-field"><label>Vẽ vùng cây gốc (2 đường ngang)</label>
+            <select id="cfg-showBox"><option value="true">Bật</option><option value="false">Tắt</option></select>
+          </div>
+          <div class="nx-field"><label>Vẽ đường SL / TP</label>
+            <select id="cfg-showSLTP"><option value="true">Bật</option><option value="false">Tắt</option></select>
           </div>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:8px;">
-          <button class="nx-tool-btn" onclick="saveV14Settings()" style="background:#10b981; color:#000; border-color:#10b981; padding:6px 14px;">ÁP DỤNG V14</button>
+          <button class="nx-tool-btn" onclick="saveV14Settings()" style="background:#10b981; color:#000; border-color:#10b981; padding:6px 14px;">ÁP DỤNG & BACKTEST LẠI</button>
         </div>
       </div>
     `;
     document.body.appendChild(v14Modal);
 
-    // Modal 2: Trình tự tạo / sửa Custom Indicator độc lập
+    // Modal Tự tạo / sửa Custom Indicator
     const creatorModal = document.createElement("div");
     creatorModal.id = "nx-creator-modal";
     creatorModal.className = "nx-modal-backdrop";
@@ -924,7 +1058,7 @@
         <input id="custom-edit-id" type="hidden" />
         <div class="nx-field" style="margin:10px 0;">
           <label>Tên Indicator hiển thị trên thanh bật/tắt</label>
-          <input id="custom-edit-name" type="text" placeholder="Ví dụ: EMA 20/50, RSI Signal, Donchian Channel..." />
+          <input id="custom-edit-name" type="text" />
         </div>
         <div class="nx-field">
           <label>Mã nguồn Indicator (Nhận mảng candles, trả về { lines: [...], markers: [...] })</label>
@@ -949,9 +1083,9 @@
     document.getElementById("cfg-rrEu").value = v14Config.rrEu;
     document.getElementById("cfg-rrUs").value = v14Config.rrUs;
     document.getElementById("cfg-statPer").value = v14Config.statPer;
-    document.getElementById("cfg-statLot").value = v14Config.statLot;
     document.getElementById("cfg-showFilt").value = String(v14Config.showFilt);
     document.getElementById("cfg-showBox").value = String(v14Config.showBox);
+    document.getElementById("cfg-showSLTP").value = String(v14Config.showSLTP);
     document.getElementById("nx-v14-modal").style.display = "flex";
   };
 
@@ -964,9 +1098,9 @@
     v14Config.rrEu = parseFloat(document.getElementById("cfg-rrEu").value) || 1.0;
     v14Config.rrUs = parseFloat(document.getElementById("cfg-rrUs").value) || 2.0;
     v14Config.statPer = document.getElementById("cfg-statPer").value;
-    v14Config.statLot = parseFloat(document.getElementById("cfg-statLot").value) || 0.0;
     v14Config.showFilt = document.getElementById("cfg-showFilt").value === "true";
     v14Config.showBox = document.getElementById("cfg-showBox").value === "true";
+    v14Config.showSLTP = document.getElementById("cfg-showSLTP").value === "true";
     indicatorStates.engulf_v14 = true;
     document.getElementById("nx-v14-modal").style.display = "none";
     persistAllIndicatorSettings();
@@ -988,18 +1122,9 @@
 
     if (editId) {
       const item = customIndicators.find(x => x.id === editId);
-      if (item) {
-        item.name = name;
-        item.code = code;
-        item.enabled = true;
-      }
+      if (item) { item.name = name; item.code = code; item.enabled = true; }
     } else {
-      customIndicators.push({
-        id: "custom_" + Date.now(),
-        name: name,
-        enabled: true,
-        code: code
-      });
+      customIndicators.push({ id: "custom_" + Date.now(), name, enabled: true, code });
     }
 
     document.getElementById("nx-creator-modal").style.display = "none";
@@ -1008,21 +1133,18 @@
   };
 
   // =========================================================================
-  // 8. ĐỒNG BỘ DỮ LIỆU ĐA KHUNG & KHỞI CHẠY
+  // 9. ĐỒNG BỘ DỮ LIỆU ĐA KHUNG 1500 NẾN & KHỞI CHẠY
   // =========================================================================
   async function syncMultiTimeframeData() {
-    if (replayState.active) return;
+    if (replayState.active) return; // Đang Replay thì không tự đồng bộ làm nhảy chart
     try {
-      const res = await fetch("/api/mt5/multi_tf?count=400");
+      const res = await fetch("/api/mt5/multi_tf?count=1500");
       const json = await res.json();
       if (json.status === "OK" && json.data) {
         mtfCache = json;
-        const tfMatch = document.body.innerText.match(/\b(M1|M5|M15|M30|H1|H4|D1)\b/);
-        if (tfMatch && json.data[tfMatch[0]] && json.data[tfMatch[0]].length > 30) {
-          activeTf = tfMatch[0];
-        }
         if (json.data[activeTf] && json.data[activeTf].length > 30) {
           fullCandles = json.data[activeTf];
+          updateReplayUI();
           renderAllActiveIndicators();
         }
       }
